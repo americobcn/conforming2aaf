@@ -27,10 +27,14 @@ def make_wav(
     info: dict[str, str] | None = None,
     rf64: bool = False,
     fill: bool = False,
+    extensible: bool = False,
 ) -> Path:
     block = channels * bits // 8
     frames = int(seconds * sample_rate)
     fmt = struct.pack("<HHIIHH", 1, channels, sample_rate, sample_rate * block, block, bits)
+    if extensible:  # WAVE_FORMAT_EXTENSIBLE: cbSize 22, valid bits, channel mask, PCM sub-format GUID
+        fmt = struct.pack("<HHIIHH", 0xFFFE, channels, sample_rate, sample_rate * block, block, bits)
+        fmt += struct.pack("<HHI", 22, bits, 3) + struct.pack("<H", 1) + bytes.fromhex("000000001000800000aa00389b71")
     body = _chunk(b"fmt ", fmt)
     if time_reference is not None or description:
         tr = time_reference or 0

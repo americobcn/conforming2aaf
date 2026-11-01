@@ -1,4 +1,5 @@
 import hashlib
+import struct
 from fractions import Fraction as F
 
 import aaf2
@@ -87,3 +88,19 @@ def test_out_of_range_and_bad_channel_are_reported(tmp_path, wav_factory):
     res = write_aaf(tl, tmp_path / "t.aaf", SR)
     assert res.clips_written == 1
     assert any("excede" in w for w in res.warnings) and any("canal 3" in w for w in res.warnings)
+
+
+def test_summary_is_plain_pcm_even_for_extensible_wav(tmp_path, wav_factory):
+    """Pro Tools rejects 'AAF WAVE Data' when the Summary holds a WAVE_FORMAT_EXTENSIBLE fmt chunk."""
+    mf = read_wav(wav_factory("ext.wav", seconds=1, channels=2, time_reference=0, extensible=True))
+    assert mf.format_tag == 1 and mf.channels == 2
+    clips = [_matched(mf, name="E", record_in=F(0), duration=F(1), source_in=F(0), channel=1)]
+    tl = Timeline("T", FrameRate.parse("25"), tracks=[Track("A1", clips)])
+    write_aaf(tl, tmp_path / "e.aaf", SR)
+    with aaf2.open(str(tmp_path / "e.aaf"), "r") as f:
+        (m,) = [m for m in f.content.sourcemobs() if type(m.descriptor).__name__ == "WAVEDescriptor"]
+        summary = bytes(m.descriptor["Summary"].value)
+    assert len(summary) == 36
+    tag, channels, rate, avg, align, bits = struct.unpack("<HHIIHH", summary[20:36])
+    assert (tag, channels, rate, avg, align, bits) == (1, 2, SR, SR * 6, 6, 24)
+    assert struct.unpack("<I", summary[4:8])[0] == 28 and struct.unpack("<I", summary[16:20])[0] == 16

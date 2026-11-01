@@ -19,7 +19,6 @@ from aaf2.auid import AUID
 from aaf2.rational import AAFRational
 
 from ..media.prepare import can_embed
-from ..media.riff import read_chunks
 from ..model import Clip, MediaFile, Timeline
 
 OP_DISSOLVE = AUID("0c3bea41-fc05-11d2-8a29-0050040ef7d2")
@@ -37,13 +36,15 @@ class WriteResult:
     warnings: list[str] = field(default_factory=list)
 
 
-def _wave_summary(path: Path) -> bytes:
-    """RIFF/WAVE header + fmt chunk, as a WAVEDescriptor Summary (RF64 safe)."""
-    off, size = read_chunks(path)["fmt "]
-    with open(path, "rb") as fh:
-        fh.seek(off)
-        fmt = fh.read(size)
-    return b"RIFF" + struct.pack("<I", 4 + 8 + size) + b"WAVE" + b"fmt " + struct.pack("<I", size) + fmt
+def _wave_summary(mf: MediaFile) -> bytes:
+    """RIFF/WAVE header + plain 16-byte fmt chunk, as a WAVEDescriptor Summary.
+
+    WAVE_FORMAT_EXTENSIBLE is flattened to its PCM/float sub-format: Pro Tools
+    fails with "Error reading AAF WAVE Data" on an extensible Summary.
+    """
+    fmt = struct.pack("<HHIIHH", mf.format_tag, mf.channels, mf.sample_rate,
+                      mf.sample_rate * mf.block_align, mf.block_align, mf.bits)
+    return b"RIFF" + struct.pack("<I", 4 + 8 + len(fmt)) + b"WAVE" + b"fmt " + struct.pack("<I", len(fmt)) + fmt
 
 
 class _Defs:
@@ -109,7 +110,7 @@ class AAFWriter:
             desc = f.create.WAVEDescriptor()
             desc["SampleRate"].value = mf.sample_rate
             desc["Length"].value = mf.frames
-            desc["Summary"].value = bytearray(_wave_summary(mf.path))
+            desc["Summary"].value = bytearray(_wave_summary(mf))
             desc["ContainerFormat"].value = f.dictionary.lookup_containerdef("AAF")
             desc["Locator"].append(create_network_locator(f, path))
             fm.descriptor = desc
