@@ -54,7 +54,10 @@ class Clip:
     gain_db: float = 0.0
     fade_in: Fraction = Fraction(0)
     fade_out: Fraction = Fraction(0)
-    crossfade_in: Fraction = Fraction(0)  # crossfade from the previous clip, starting at record_in
+    # Crossfade from the previous clip on the track. record_in is the cut point;
+    # crossfade_pre is how much of the crossfade lies before the cut.
+    crossfade_in: Fraction = Fraction(0)
+    crossfade_pre: Fraction = Fraction(0)
     media: MediaFile | None = None
     match_status: str = "unmatched"  # matched | ambiguous | missing
     match_note: str = ""
