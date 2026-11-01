@@ -1,4 +1,0 @@
-pyaaf2==1.7.1
-
-[dev]
-pytest>=8

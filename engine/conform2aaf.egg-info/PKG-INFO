@@ -1,7 +1,0 @@
-Metadata-Version: 2.4
-Name: conform2aaf
-Version: 0.1.0
-Requires-Python: >=3.12
-Requires-Dist: pyaaf2==1.7.1
-Provides-Extra: dev
-Requires-Dist: pytest>=8; extra == "dev"

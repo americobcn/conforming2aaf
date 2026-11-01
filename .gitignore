@@ -8,3 +8,4 @@ __pycache__/
 .pytest_cache/
 engine/dist/
 Conformig2AAF/Resources/engine/
+*.egg-info/

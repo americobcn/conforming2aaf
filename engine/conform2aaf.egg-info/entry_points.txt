@@ -1,2 +1,0 @@
-[console_scripts]
-conform2aaf = conform2aaf.cli:main
