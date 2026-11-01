@@ -1,0 +1,11 @@
+pyproject.toml
+conform2aaf/__init__.py
+conform2aaf.egg-info/PKG-INFO
+conform2aaf.egg-info/SOURCES.txt
+conform2aaf.egg-info/dependency_links.txt
+conform2aaf.egg-info/entry_points.txt
+conform2aaf.egg-info/requires.txt
+conform2aaf.egg-info/top_level.txt
+conform2aaf/media/__init__.py
+conform2aaf/readers/__init__.py
+conform2aaf/writers/__init__.py

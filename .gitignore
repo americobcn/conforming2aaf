@@ -1,0 +1,10 @@
+.DS_Store
+xcuserdata/
+build/
+DerivedData/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+engine/dist/
+Conformig2AAF/Resources/engine/
