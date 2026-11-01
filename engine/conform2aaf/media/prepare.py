@@ -155,6 +155,7 @@ def prepare_media(
     taken: dict[str, object] = {}
     cache: dict[tuple[Path, int], tuple[MediaFile, int | None]] = {}
     warned: set[Path] = set()
+    poly_warned: set[Path] = set()
 
     def say(msg: str) -> None:
         if progress:
@@ -191,6 +192,11 @@ def prepare_media(
                     res.warnings.append(
                         f"{mf.path.name}: no se puede embeber (solo PCM de 16/24 bits en WAV estándar), se enlaza")
                 continue
+            if not split and mf.channels > 1 and mf.path not in poly_warned:
+                poly_warned.add(mf.path)
+                res.warnings.append(
+                    f"{mf.path.name}: {mf.channels} canales. Pro Tools no admite ficheros multicanal en un AAF "
+                    "y enlazaría siempre el canal 1; activa «Partir polifónicos a mono»")
             if split and mf.channels > 1 and ch <= mf.channels:
                 key = (mf.path, ch)
                 if key not in cache:

@@ -26,7 +26,7 @@ final class ConformModel {
     var startTC = ""
     var sampleRate = 48000
     var mediaMode = MediaMode.link
-    var splitMono = false
+    var splitMono = true
     var choices: [String: String] = [:]  // clip id -> chosen file path
 
     var report: EngineReport?

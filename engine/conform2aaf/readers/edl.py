@@ -93,6 +93,7 @@ def read_edl(path: Path, rate: FrameRate) -> Timeline:
     eff_rate = eff()
     fps = eff_rate.fps
     tracks: dict[int, Track] = {}
+    placed: list[tuple[int, Clip]] = []  # (destination track number, clip)
     for i, ln in enumerate(lines):
         prev = lines[i - 1] if i and lines[i - 1].event == ln.event else None
         if ln.trans == "D" and ln.reel.upper() in BLACK and i:
@@ -120,6 +121,17 @@ def read_edl(path: Path, rate: FrameRate) -> Timeline:
                 else:
                     clip.crossfade_in = d
             tracks.setdefault(ch, Track(f"A{ch}")).clips.append(clip)
+            placed.append((ch, clip))
+
+    # The EDL names the destination track (A3, A4...), not the source channel. Events that
+    # play the same source range at the same time take source channels 1, 2, 3... in track order.
+    groups: dict[tuple, list[tuple[int, Clip]]] = {}
+    for track_no, clip in placed:
+        key = (clip.reel, clip.name, clip.file_hint, clip.source_in, clip.record_in, clip.duration)
+        groups.setdefault(key, []).append((track_no, clip))
+    for members in groups.values():
+        for rank, (_, clip) in enumerate(sorted(members, key=lambda m: m[0]), 1):
+            clip.channel = rank
 
     for t in tracks.values():
         t.clips.sort(key=lambda c: c.record_in)

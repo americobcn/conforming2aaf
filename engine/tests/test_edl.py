@@ -45,7 +45,7 @@ def test_reads_events(tmp_path):
     assert xfade.crossfade_in == F(12, 25) and xfade.crossfade_pre == 0
     assert xfade.source_in == F(11 * 3600 + 30 * 60)
 
-    assert [c.channel for c in tl.tracks[2].clips + tl.tracks[3].clips] == [3, 4]
+    assert [c.channel for c in tl.tracks[2].clips + tl.tracks[3].clips] == [1, 2]  # simultaneous events -> source channels 1, 2
     assert any("velocidad" in w for w in tl.warnings)
     assert any("W001" in w for w in tl.warnings)
 
@@ -74,3 +74,21 @@ def test_drop_frame_from_fcm(tmp_path):
     assert tl.rate.drop
     c = tl.tracks[0].clips[0]
     assert c.source_in == F(17982) / F(30000, 1001)
+
+
+def test_simultaneous_events_take_source_channels_in_track_order(tmp_path):
+    """An EDL only names the destination track (A3..A6), never the source channel."""
+    p = tmp_path / "poly.edl"
+    p.write_text(
+        "TITLE: P\nFCM: NON-DROP FRAME\n"
+        + "".join(
+            f"{i:03d}  AX  {t}  C  09:23:49:20 09:24:07:07 01:01:39:05 01:01:56:16\n"
+            f"* FROM CLIP NAME: SL7787.WAV\n\n"
+            for i, t in enumerate(["A3", "A4", "A5", "A6"], 11)
+        )
+        + "020  AX  A2  C  10:00:00:00 10:00:01:00 01:02:00:00 01:02:01:00\n* FROM CLIP NAME: LONE.WAV\n"
+    )
+    tl = read_edl(p, FrameRate.parse("25"))
+    assert [t.name for t in tl.tracks] == ["A2", "A3", "A4", "A5", "A6"]
+    by_track = {t.name: [c.channel for c in t.clips] for t in tl.tracks}
+    assert by_track == {"A2": [1], "A3": [1], "A4": [2], "A5": [3], "A6": [4]}

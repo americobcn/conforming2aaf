@@ -150,3 +150,13 @@ def test_embed_keeps_non_embeddable_linked(tmp_path, wav_factory):
         write_aaf(tl, out, SR, embed=True)
     with aaf2.open(str(out), "r") as f:
         assert list(f.content.essencedata) == []
+
+
+@pytest.mark.parametrize("mode", ["link", "copy"])
+def test_warns_when_polyphonic_stays_multichannel(tmp_path, poly, mode):
+    tl = _timeline(_clip(poly, channel=2), _clip(poly, channel=3, rec=1))
+    with prepare_media(tl, tmp_path / "r.aaf", mode, split_mono=False) as res:
+        (w,) = res.warnings  # once per file, not per clip
+        assert "poly.wav" in w and "3 canales" in w and "mono" in w
+    with prepare_media(tl, tmp_path / "r2.aaf", mode, split_mono=True) as res:
+        assert res.warnings == []
