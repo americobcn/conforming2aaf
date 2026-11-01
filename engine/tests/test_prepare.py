@@ -1,0 +1,152 @@
+import hashlib
+import struct
+from fractions import Fraction as F
+
+import aaf2
+import pytest
+
+from conform2aaf.media.prepare import can_embed, prepare_media, split_wav
+from conform2aaf.media.riff import read_chunks, read_wav
+from conform2aaf.model import Clip, Timeline, Track
+from conform2aaf.timecode import FrameRate
+from conform2aaf.writers.aaf import write_aaf
+
+SR = 48000
+
+
+def _sha(p):
+    return hashlib.sha256(p.read_bytes()).hexdigest()
+
+
+def _data(path):
+    off, size = read_chunks(path)["data"]
+    return path.read_bytes()[off : off + size]
+
+
+def _clip(mf, channel=1, name="c", rec=0, dur=1, src=0):
+    c = Clip(name=name, record_in=F(rec), duration=F(dur), source_in=F(src), channel=channel)
+    c.media, c.match_status = mf, "matched"
+    return c
+
+
+def _timeline(*clips):
+    return Timeline("T", FrameRate.parse("25"), tracks=[Track("A1", list(clips))])
+
+
+@pytest.fixture
+def poly(wav_factory):
+    p = wav_factory(
+        "poly.wav", seconds=0.01, channels=3, bits=24, time_reference=36000 * SR, fill=True,
+        description="sSPEED=025", scene="12A", take="3", tape="D1",
+        track_names=["Boom", "Lav1", "Lav2"], info={"INAM": "Take 3"},
+    )
+    return read_wav(p)
+
+
+def test_split_wav_deinterleaves_and_keeps_metadata(tmp_path, poly):
+    dest = tmp_path / "poly_2.wav"
+    split_wav(poly, 2, dest)
+    mono = read_wav(dest)
+    assert (mono.channels, mono.bits, mono.sample_rate, mono.frames) == (1, 24, SR, poly.frames)
+    expected = b"".join(bytes((2, f % 251, 7)) for f in range(poly.frames))
+    assert _data(dest) == expected
+    assert mono.time_reference == poly.time_reference and mono.start == poly.start
+    assert (mono.description, mono.originator) == (poly.description, poly.originator)
+    assert (mono.scene, mono.take, mono.tape) == ("12A", "3", "D1")
+    assert mono.info == {"INAM": "Take 3"}
+    assert mono.track_names == ["Lav1"]  # iXML keeps only this channel's track
+    assert {"bext", "iXML", "LIST"} <= set(mono.chunks)
+
+
+def test_split_wav_odd_data_size_is_padded(tmp_path, wav_factory):
+    src = read_wav(wav_factory("odd3.wav", seconds=3.5 / SR, channels=2, bits=24, fill=True))
+    assert src.frames == 3
+    dest = tmp_path / "odd3_1.wav"
+    split_wav(src, 1, dest)
+    raw = dest.read_bytes()
+    assert read_wav(dest).frames == 3
+    assert len(raw) % 2 == 0
+    assert struct.unpack("<I", raw[4:8])[0] == len(raw) - 8
+
+
+def test_link_without_split_touches_nothing(tmp_path, poly):
+    tl = _timeline(_clip(poly))
+    out = tmp_path / "out" / "x.aaf"
+    with prepare_media(tl, out, "link", split_mono=False) as res:
+        assert res.media_dir is None and res.files == 0
+    assert tl.tracks[0].clips[0].media is poly
+    assert not (tmp_path / "out").exists()
+
+
+def test_copy_is_bit_exact_and_dedupes_names(tmp_path, wav_factory):
+    a = read_wav(wav_factory("d1/T001.wav", seconds=0.1, time_reference=SR))
+    b = read_wav(wav_factory("d2/T001.wav", seconds=0.2, time_reference=2 * SR))
+    tl = _timeline(_clip(a, name="a"), _clip(b, name="b", rec=1), _clip(a, name="a2", rec=2))
+    out = tmp_path / "out" / "reel.aaf"
+    with prepare_media(tl, out, "copy", split_mono=False) as res:
+        assert res.media_dir == out.parent / "reel Media" and res.files == 2
+        c1, c2, c3 = tl.tracks[0].clips
+        assert c1.media.path.parent == res.media_dir
+        assert sorted(p.name for p in res.media_dir.iterdir()) == ["T001 (2).wav", "T001.wav"]
+        assert _sha(c1.media.path) == _sha(a.path) and _sha(c2.media.path) == _sha(b.path)
+        assert c3.media.path == c1.media.path  # same source copied once
+        assert c1.media.time_reference == SR
+
+
+def test_split_only_used_channels(tmp_path, poly):
+    tl = _timeline(_clip(poly, channel=1), _clip(poly, channel=3, rec=1))
+    out = tmp_path / "reel.aaf"
+    with prepare_media(tl, out, "link", split_mono=True) as res:
+        assert sorted(p.name for p in res.media_dir.iterdir()) == ["poly_1.wav", "poly_3.wav"]
+        c1, c3 = tl.tracks[0].clips
+        assert (c1.channel, c3.channel) == (1, 1)
+        assert c1.media.path.name == "poly_1.wav" and c3.media.track_names == ["Lav2"]
+        assert res.files == 2 and res.bytes > 0
+
+
+def test_mono_file_is_not_split(tmp_path, wav_factory):
+    mono = read_wav(wav_factory("m.wav", seconds=0.1))
+    tl = _timeline(_clip(mono))
+    with prepare_media(tl, tmp_path / "r.aaf", "link", split_mono=True) as res:
+        assert res.files == 0 and tl.tracks[0].clips[0].media is mono
+
+
+def test_can_embed(wav_factory):
+    assert can_embed(read_wav(wav_factory("a.wav", seconds=0.1, bits=24)))
+    assert can_embed(read_wav(wav_factory("b.wav", seconds=0.1, bits=16)))
+    assert not can_embed(read_wav(wav_factory("c.wav", seconds=0.1, bits=32)))
+    assert not can_embed(read_wav(wav_factory("d.wav", seconds=0.1, rf64=True)))
+    assert not can_embed(read_wav(wav_factory("e.wav", seconds=0.1, channels=2)))
+
+
+def test_embed_uses_temp_dir_and_cleans_up(tmp_path, poly):
+    tl = _timeline(_clip(poly, channel=2, dur=F(1, 200), src=36000))
+    out = tmp_path / "out" / "reel.aaf"
+    with prepare_media(tl, out, "embed", split_mono=True) as res:
+        temp = tl.tracks[0].clips[0].media.path
+        assert temp.exists() and res.media_dir != out.parent / "reel Media"
+        write_aaf(tl, out, SR, embed=True)
+    assert not temp.exists()
+    assert not (out.parent / "reel Media").exists()
+    with aaf2.open(str(out), "r") as f:
+        (ed,) = list(f.content.essencedata)
+        assert len(ed.open("r").read()) == poly.frames * 3
+        (mm,) = list(f.content.mastermobs())
+        assert mm.name == "poly_2" and mm.comments["Scene"] == "12A"
+        file_mob = mm.slot_at(1).segment.components[0].mob
+        assert type(file_mob.descriptor).__name__ == "PCMDescriptor"
+        assert file_mob.descriptor["Channels"].value == 1
+        tape_clip = file_mob.slot_at(1).segment
+        assert tape_clip.start == 36000 * SR and tape_clip.mob.name == "poly_2.wav"  # BWF timecode survives
+
+
+def test_embed_keeps_non_embeddable_linked(tmp_path, wav_factory):
+    f32 = read_wav(wav_factory("w.wav", seconds=0.1, channels=2, bits=32, time_reference=0))
+    tl = _timeline(_clip(f32, channel=2))
+    out = tmp_path / "r.aaf"
+    with prepare_media(tl, out, "embed", split_mono=True) as res:
+        assert any("no se puede embeber" in w for w in res.warnings)
+        assert tl.tracks[0].clips[0].media is f32 and tl.tracks[0].clips[0].channel == 2
+        write_aaf(tl, out, SR, embed=True)
+    with aaf2.open(str(out), "r") as f:
+        assert list(f.content.essencedata) == []

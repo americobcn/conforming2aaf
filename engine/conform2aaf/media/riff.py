@@ -42,6 +42,11 @@ def read_chunks(path: Path) -> dict[str, tuple[int, int]]:
     return chunks
 
 
+def head_is_rf64(path: Path) -> bool:
+    with open(path, "rb") as f:
+        return f.read(4) in (b"RF64", b"BW64")
+
+
 def parse_ixml(xml_text: str) -> dict:
     out: dict = {"track_names": []}
     try:
@@ -73,7 +78,8 @@ def read_wav(path: Path) -> MediaFile:
         if tag == WAVE_FORMAT_EXTENSIBLE and len(fmt) >= 26:
             tag = struct.unpack("<H", fmt[24:26])[0]
         frames = chunks["data"][1] // block_align if block_align else 0
-        mf = MediaFile(path, sample_rate, channels, bits, frames, chunks=list(chunks))
+        mf = MediaFile(path, sample_rate, channels, bits, frames, chunks=list(chunks),
+                       format_tag=tag, block_align=block_align, rf64=head_is_rf64(path))
 
         if "bext" in chunks:
             b = payload("bext")

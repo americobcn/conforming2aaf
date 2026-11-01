@@ -7,12 +7,26 @@ final class ConformModel {
     static let frameRates = ["23.976", "24", "25", "29.97", "29.97DF", "30", "50", "59.94", "59.94DF", "60"]
     static let sampleRates = [44100, 48000, 88200, 96000]
 
+    enum MediaMode: String, CaseIterable, Identifiable {
+        case link, copy, embed
+        var id: Self { self }
+        var label: String {
+            switch self {
+            case .link: "Enlazar a los originales"
+            case .copy: "Copiar junto al AAF"
+            case .embed: "Embeber en el AAF"
+            }
+        }
+    }
+
     var inputURL: URL?
     var mediaFolders: [URL] = []
     var includeSubfolders = true
     var fps = "25"
     var startTC = ""
     var sampleRate = 48000
+    var mediaMode = MediaMode.link
+    var splitMono = false
     var choices: [String: String] = [:]  // clip id -> chosen file path
 
     var report: EngineReport?
@@ -55,7 +69,9 @@ final class ConformModel {
     }
 
     func convert(to url: URL) async {
-        await run(["convert"] + baseArguments() + ["--out", url.path, "--sample-rate", String(sampleRate)])
+        var args = ["--out", url.path, "--sample-rate", String(sampleRate), "--media-mode", mediaMode.rawValue]
+        if splitMono || mediaMode == .embed { args.append("--split-mono") }
+        await run(["convert"] + baseArguments() + args)
     }
 
     private func baseArguments() -> [String] {
@@ -83,7 +99,13 @@ final class ConformModel {
                 case .report(let r): report = r; status = "Análisis completado"
                 case .result(let r):
                     lastOutput = URL(fileURLWithPath: r.output)
-                    status = "AAF exportado: \(r.clipsWritten) clips, \(r.clipsSkipped) omitidos"
+                    var text = "AAF exportado: \(r.clipsWritten) clips, \(r.clipsSkipped) omitidos"
+                    if r.mediaFiles > 0 {
+                        let size = ByteCountFormatter.string(fromByteCount: Int64(r.mediaBytes), countStyle: .file)
+                        text += r.mediaDir == nil ? ". \(r.mediaFiles) ficheros embebidos (\(size))"
+                                                  : ". \(r.mediaFiles) ficheros de audio (\(size)) en la carpeta de medios"
+                    }
+                    status = text
                 case .error(let message): errorMessage = message; status = ""
                 }
             }

@@ -63,3 +63,43 @@ def test_errors_are_json(tmp_path):
     bad.write_text("TITLE: X\n")
     code, events = run("inspect", bad)
     assert code == 1 and events[-1]["type"] == "error" and "frecuencia" in events[-1]["message"]
+
+
+def _poly_setup(tmp_path, wav_factory):
+    wav_factory("media/poly.wav", seconds=5, channels=2, time_reference=36000 * SR, scene="12A",
+                track_names=["Boom", "Lav"])
+    edl = tmp_path / "p.edl"
+    edl.write_text(
+        "TITLE: POLY\nFCM: NON-DROP FRAME\n"
+        "001  poly  A1  C  10:00:01:00 10:00:02:00 01:00:00:00 01:00:01:00\n"
+        "002  poly  A2  C  10:00:01:00 10:00:02:00 01:00:00:00 01:00:01:00\n"
+    )
+    return edl, tmp_path / "media"
+
+
+def test_convert_copy_and_split_mono(tmp_path, wav_factory):
+    edl, media = _poly_setup(tmp_path, wav_factory)
+    out = tmp_path / "out" / "poly.aaf"
+    code, events = run("convert", edl, "--media", media, "--fps", "25", "--out", out,
+                       "--media-mode", "copy", "--split-mono")
+    assert code == 0, events
+    (res,) = [e for e in events if e["type"] == "result"]
+    folder = tmp_path / "out" / "poly Media"
+    assert res["media_dir"] == str(folder) and res["media_files"] == 2 and res["media_bytes"] > 0
+    assert sorted(p.name for p in folder.iterdir()) == ["poly_1.wav", "poly_2.wav"]
+    with aaf2.open(str(out), "r") as f:
+        urls = sorted(m.descriptor["Locator"][0]["URLString"].value
+                      for m in f.content.sourcemobs() if type(m.descriptor).__name__ == "WAVEDescriptor")
+    assert urls == sorted((folder / n).resolve().as_uri() for n in ("poly_1.wav", "poly_2.wav"))
+
+
+def test_convert_embed(tmp_path, wav_factory):
+    edl, media = _poly_setup(tmp_path, wav_factory)
+    out = tmp_path / "poly.aaf"
+    code, events = run("convert", edl, "--media", media, "--fps", "25", "--out", out, "--media-mode", "embed")
+    assert code == 0, events
+    (res,) = [e for e in events if e["type"] == "result"]
+    assert res["media_dir"] is None and res["media_files"] == 2 and res["media_bytes"] > 0
+    assert not (tmp_path / "poly Media").exists()
+    with aaf2.open(str(out), "r") as f:
+        assert len(list(f.content.essencedata)) == 2

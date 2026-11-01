@@ -25,6 +25,9 @@ class MediaFile:
     track_names: list[str] = field(default_factory=list)
     info: dict[str, str] = field(default_factory=dict)
     chunks: list[str] = field(default_factory=list)
+    format_tag: int = 1  # 1 = PCM, 3 = IEEE float
+    block_align: int = 0
+    rf64: bool = False
 
     @property
     def stem(self) -> str:

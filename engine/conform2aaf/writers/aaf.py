@@ -18,6 +18,7 @@ from aaf2.ama import create_network_locator
 from aaf2.auid import AUID
 from aaf2.rational import AAFRational
 
+from ..media.prepare import can_embed
 from ..media.riff import read_chunks
 from ..model import Clip, MediaFile, Timeline
 
@@ -31,6 +32,8 @@ DAY_SECONDS = 24 * 3600
 class WriteResult:
     clips_written: int = 0
     clips_skipped: int = 0
+    embedded_files: int = 0
+    embedded_bytes: int = 0
     warnings: list[str] = field(default_factory=list)
 
 
@@ -62,7 +65,8 @@ class _Defs:
 
 
 class AAFWriter:
-    def __init__(self, f, timeline: Timeline, sample_rate: int, result: WriteResult):
+    def __init__(self, f, timeline: Timeline, sample_rate: int, result: WriteResult, embed: bool = False):
+        self.embed = embed
         self.f = f
         self.tl = timeline
         self.sr = sample_rate
@@ -81,8 +85,10 @@ class AAFWriter:
 
         imp = f.create.SourceMob()
         imp.name = mf.path.name
+        embed = self.embed and can_embed(mf)
         imp.descriptor = f.create.ImportDescriptor()
-        imp.descriptor["Locator"].append(create_network_locator(f, path))
+        if not embed:  # embedded media may come from a temporary folder: no locator
+            imp.descriptor["Locator"].append(create_network_locator(f, path))
         f.content.mobs.append(imp)
         for _ in range(mf.channels):
             s = imp.create_empty_slot(edit_rate=mf.sample_rate, media_kind="sound")
@@ -92,23 +98,33 @@ class AAFWriter:
 
         fm = f.create.SourceMob()
         fm.name = mf.path.name
-        desc = f.create.WAVEDescriptor()
-        desc["SampleRate"].value = mf.sample_rate
-        desc["Length"].value = mf.frames
-        desc["Summary"].value = bytearray(_wave_summary(mf.path))
-        desc["ContainerFormat"].value = f.dictionary.lookup_containerdef("AAF")
-        desc["Locator"].append(create_network_locator(f, path))
-        fm.descriptor = desc
         f.content.mobs.append(fm)
+        if embed:
+            # PCMDescriptor + essence stored in the AAF; slot 1 points at the import mob
+            # at the file's BWF timecode origin.
+            fm.import_audio_essence(str(mf.path), tape=imp.create_source_clip(1, start=tr, length=mf.frames))
+            self.res.embedded_files += 1
+            self.res.embedded_bytes += mf.frames * mf.block_align
+        else:
+            desc = f.create.WAVEDescriptor()
+            desc["SampleRate"].value = mf.sample_rate
+            desc["Length"].value = mf.frames
+            desc["Summary"].value = bytearray(_wave_summary(mf.path))
+            desc["ContainerFormat"].value = f.dictionary.lookup_containerdef("AAF")
+            desc["Locator"].append(create_network_locator(f, path))
+            fm.descriptor = desc
 
         mm = f.create.MasterMob()
         mm.name = mf.stem
         f.content.mobs.append(mm)
         for ch in range(1, mf.channels + 1):
-            fslot = fm.create_empty_sequence_slot(mf.sample_rate, media_kind="sound")
+            if embed:
+                fslot = fm.slot_at(1)
+            else:
+                fslot = fm.create_empty_sequence_slot(mf.sample_rate, media_kind="sound")
+                fslot.segment.components.append(imp.create_source_clip(ch, start=tr, length=mf.frames))
+                fslot.segment.length = mf.frames
             fslot["PhysicalTrackNumber"].value = ch
-            fslot.segment.components.append(imp.create_source_clip(ch, start=tr, length=mf.frames))
-            fslot.segment.length = mf.frames
             mslot = mm.create_empty_sequence_slot(mf.sample_rate, media_kind="sound")
             mslot["PhysicalTrackNumber"].value = ch
             mslot.segment.components.append(fm.create_source_clip(fslot.slot_id, start=0, length=mf.frames))
@@ -245,12 +261,12 @@ class AAFWriter:
         tc.segment.length = max(1, round(Fraction(total, self.sr) * tl.rate.nominal))
 
 
-def write_aaf(tl: Timeline, out: Path, sample_rate: int = 48000) -> WriteResult:
+def write_aaf(tl: Timeline, out: Path, sample_rate: int = 48000, embed: bool = False) -> WriteResult:
     result = WriteResult()
     out = Path(out)
     out.parent.mkdir(parents=True, exist_ok=True)
     tmp = out.with_name(out.name + ".partial")
     with aaf2.open(str(tmp), "w") as f:
-        AAFWriter(f, tl, sample_rate, result).write()
+        AAFWriter(f, tl, sample_rate, result, embed).write()
     tmp.replace(out)
     return result

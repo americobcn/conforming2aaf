@@ -57,4 +57,7 @@ nonisolated struct EngineResult: Decodable, Sendable {
     let output: String
     let clipsWritten: Int
     let clipsSkipped: Int
+    let mediaDir: String?
+    let mediaFiles: Int
+    let mediaBytes: Int
 }

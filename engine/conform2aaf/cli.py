@@ -3,6 +3,7 @@
     conform2aaf inspect INPUT --media DIR [--media DIR ...] [--fps 25]
     conform2aaf convert INPUT --media DIR --out OUT.aaf [--fps 25] [--start-tc 01:00:00:00]
                         [--sample-rate 48000] [--choose T:C=/path/file.wav ...]
+                        [--media-mode link|copy|embed] [--split-mono]
 """
 from __future__ import annotations
 
@@ -13,6 +14,7 @@ from fractions import Fraction
 from pathlib import Path
 
 from .media.matcher import Matcher
+from .media.prepare import MODES, prepare_media
 from .media.riff import read_wav
 from .media.scanner import scan
 from .model import Timeline
@@ -102,6 +104,8 @@ def main(argv: list[str] | None = None) -> int:
         if name == "convert":
             p.add_argument("--out", required=True)
             p.add_argument("--sample-rate", type=int, default=48000)
+            p.add_argument("--media-mode", choices=MODES, default="link")
+            p.add_argument("--split-mono", action="store_true")
     args = ap.parse_args(argv)
 
     try:
@@ -109,11 +113,21 @@ def main(argv: list[str] | None = None) -> int:
         emit("report", **report(tl, counts))
         if args.cmd == "convert":
             emit("progress", stage="write", message="Escribiendo AAF")
-            res = write_aaf(tl, Path(args.out), args.sample_rate)
+            out = Path(args.out)
+            with prepare_media(tl, out, args.media_mode, args.split_mono,
+                               lambda m: emit("progress", stage="media", message=m)) as media:
+                for w in media.warnings:
+                    emit("warning", message=w)
+                res = write_aaf(tl, out, args.sample_rate, embed=args.media_mode == "embed")
+                media_dir = str(media.media_dir) if media.media_dir and args.media_mode != "embed" else None
+                embed = args.media_mode == "embed"
+                media_files = res.embedded_files if embed else media.files
+                media_bytes = res.embedded_bytes if embed else media.bytes
             for w in res.warnings:
                 emit("warning", message=w)
-            emit("result", output=str(Path(args.out).resolve()),
-                 clips_written=res.clips_written, clips_skipped=res.clips_skipped)
+            emit("result", output=str(out.resolve()),
+                 clips_written=res.clips_written, clips_skipped=res.clips_skipped,
+                 media_dir=media_dir, media_files=media_files, media_bytes=media_bytes)
         return 0
     except Exception as e:  # report every failure to the app instead of a traceback
         emit("error", message=f"{type(e).__name__}: {e}")

@@ -18,6 +18,19 @@ struct ExportOptionsView: View {
             Picker("Frecuencia de muestreo", selection: $model.sampleRate) {
                 ForEach(ConformModel.sampleRates, id: \.self) { Text("\($0) Hz") }
             }
+
+            Picker("Medios", selection: $model.mediaMode) {
+                ForEach(ConformModel.MediaMode.allCases) { Text($0.label).tag($0) }
+            }
+            .help("Copiar crea la carpeta '<nombre> Media' junto al AAF. Embeber guarda el audio dentro del AAF (solo PCM 16/24 bits).")
+
+            Toggle("Partir polifónicos a mono", isOn: Binding(
+                get: { model.splitMono || model.mediaMode == .embed },
+                set: { model.splitMono = $0 }
+            ))
+            .disabled(model.mediaMode == .embed)
+            .help(model.mediaMode == .embed ? "Al embeber siempre se parte a mono"
+                                            : "Un WAV mono por canal usado, con los metadatos del original")
         }
         .formStyle(.columns)
     }

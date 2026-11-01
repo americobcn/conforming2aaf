@@ -26,6 +26,7 @@ def make_wav(
     track_names: list[str] | None = None,
     info: dict[str, str] | None = None,
     rf64: bool = False,
+    fill: bool = False,
 ) -> Path:
     block = channels * bits // 8
     frames = int(seconds * sample_rate)
@@ -57,7 +58,13 @@ def make_wav(
     if info:
         sub = b"".join(_chunk(k.encode(), v.encode() + b"\x00") for k, v in info.items())
         body += _chunk(b"LIST", b"INFO" + sub)
-    data = b"\x00" * (frames * block)
+    if fill:  # frame f, channel c -> bytes (c + 1, f % 251, 7, ...)
+        w = bits // 8
+        data = b"".join(
+            bytes(((c + 1) % 256, f % 251) + (7,) * (w - 2)) for f in range(frames) for c in range(channels)
+        )
+    else:
+        data = b"\x00" * (frames * block)
     if rf64:
         ds64 = _chunk(b"ds64", struct.pack("<QQQI", 0, len(data), frames, 0))
         out = b"RF64" + struct.pack("<I", 0xFFFFFFFF) + b"WAVE" + ds64 + body
