@@ -64,6 +64,30 @@ final class ConformModel {
         choices[clipID] = path
     }
 
+    /// Never overwrite: if the AAF or its '<name> Media' folder already exists, append the date and time
+    /// (Pro Tools can reuse a cached older AAF when the file name repeats).
+    static func uniqueOutputURL(_ url: URL, now: Date = .now) -> URL {
+        let fm = FileManager.default
+        let dir = url.deletingLastPathComponent()
+        let stem = url.deletingPathExtension().lastPathComponent
+        func taken(_ name: String) -> Bool {
+            fm.fileExists(atPath: dir.appendingPathComponent("\(name).aaf").path)
+                || fm.fileExists(atPath: dir.appendingPathComponent("\(name) Media").path)
+        }
+        guard taken(stem) else { return url }
+        let format = DateFormatter()
+        format.locale = Locale(identifier: "en_US_POSIX")
+        format.dateFormat = "yyyy-MM-dd_HH-mm-ss"
+        let base = "\(stem)_\(format.string(from: now))"
+        var name = base
+        var n = 1
+        while taken(name) {
+            n += 1
+            name = "\(base)-\(n)"
+        }
+        return dir.appendingPathComponent("\(name).aaf")
+    }
+
     func inspect() async {
         await run(["inspect"] + baseArguments())
     }

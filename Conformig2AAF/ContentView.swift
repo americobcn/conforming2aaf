@@ -75,8 +75,10 @@ struct ContentView: View {
         panel.allowedContentTypes = [UTType(filenameExtension: "aaf") ?? .data]
         let stem = model.inputURL?.deletingPathExtension().lastPathComponent ?? "Conform"
         panel.nameFieldStringValue = "\(stem).aaf"
+        panel.message = "Si ya existe un AAF con ese nombre no se sobrescribe: se añade la fecha y hora al nombre."
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        Task { await model.convert(to: url) }
+        let target = ConformModel.uniqueOutputURL(url)
+        Task { await model.convert(to: target) }
     }
 }
 
