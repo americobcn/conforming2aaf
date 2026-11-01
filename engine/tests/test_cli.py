@@ -4,6 +4,8 @@ import sys
 
 import aaf2
 
+from conform2aaf.writers.aaf import locator_url
+
 SR = 48000
 
 EDL = """TITLE: CLI TEST
@@ -90,7 +92,7 @@ def test_convert_copy_and_split_mono(tmp_path, wav_factory):
     with aaf2.open(str(out), "r") as f:
         urls = sorted(m.descriptor["Locator"][0]["URLString"].value
                       for m in f.content.sourcemobs() if type(m.descriptor).__name__ == "WAVEDescriptor")
-    assert urls == sorted((folder / n).resolve().as_uri() for n in ("poly_1.wav", "poly_2.wav"))
+    assert urls == sorted(locator_url((folder / n).resolve()) for n in ("poly_1.wav", "poly_2.wav"))
 
 
 def test_convert_embed(tmp_path, wav_factory):

@@ -7,7 +7,7 @@ import aaf2
 from conform2aaf.media.riff import read_wav
 from conform2aaf.model import Clip, Timeline, Track
 from conform2aaf.timecode import FrameRate
-from conform2aaf.writers.aaf import write_aaf
+from conform2aaf.writers.aaf import locator_url, write_aaf
 
 SR = 48000
 
@@ -74,7 +74,7 @@ def test_write_and_read_back(tmp_path, wav_factory):
         file_clip = mm.slot_at(1).segment.components[0]
         file_mob = file_clip.mob
         url = file_mob.descriptor["Locator"][0]["URLString"].value
-        assert url == a_path.resolve().as_uri()
+        assert url == locator_url(a_path.resolve())
         assert file_mob.descriptor["SampleRate"].value == SR
         tape_clip = file_mob.slot_at(1).segment.components[0]
         assert tape_clip.start == 36000 * SR  # original BWF timecode
@@ -104,3 +104,11 @@ def test_summary_is_plain_pcm_even_for_extensible_wav(tmp_path, wav_factory):
     tag, channels, rate, avg, align, bits = struct.unpack("<HHIIHH", summary[20:36])
     assert (tag, channels, rate, avg, align, bits) == (1, 2, SR, SR * 6, 6, 24)
     assert struct.unpack("<I", summary[4:8])[0] == 28 and struct.unpack("<I", summary[16:20])[0] == 16
+
+
+def test_locator_url_names_the_volume_first():
+    """Pro Tools turns file:///Volumes/X/... into the HFS path 'Volumes:X:...' (a disk that
+    does not exist) and drops the media offline; Avid-style URLs start with the volume name."""
+    assert locator_url("/Volumes/MediaSSD/AAF EXP/Media/a_1.wav") == "file:///MediaSSD/AAF%20EXP/Media/a_1.wav"
+    assert locator_url("/Users/me/Audio/a.wav", boot_volume="MacHD") == "file:///MacHD/Users/me/Audio/a.wav"
+    assert locator_url("/Volumes/Data/é.wav") == "file:///Data/%C3%A9.wav"

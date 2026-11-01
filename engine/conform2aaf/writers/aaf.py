@@ -8,13 +8,13 @@ every edit is sample-accurate whatever the project frame rate.
 """
 from __future__ import annotations
 
+import os
 import struct
 from dataclasses import dataclass, field
 from fractions import Fraction
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import aaf2
-from aaf2.ama import create_network_locator
 from aaf2.auid import AUID
 from aaf2.rational import AAFRational
 
@@ -34,6 +34,37 @@ class WriteResult:
     embedded_files: int = 0
     embedded_bytes: int = 0
     warnings: list[str] = field(default_factory=list)
+
+
+def _boot_volume() -> str:
+    try:
+        for name in os.listdir("/Volumes"):
+            if os.path.realpath(f"/Volumes/{name}") == "/":
+                return name
+    except OSError:
+        pass
+    return "Macintosh HD"
+
+
+def locator_url(path: Path | str, boot_volume: str | None = None) -> str:
+    """Avid-style file URL: the first path component is the volume name.
+
+    Pro Tools maps file:///Volumes/X/... to the HFS path "Volumes:X:...", a disk
+    that does not exist, so the media goes offline and its relink window crashes
+    Pro Tools. file:///X/... resolves to "X:...".
+    """
+    p = str(path)
+    if p.startswith("/Volumes/"):
+        p = p[len("/Volumes"):]
+    else:
+        p = "/" + (boot_volume or _boot_volume()) + p
+    return PurePosixPath(p).as_uri()
+
+
+def _locator(f, path: Path | str):
+    loc = f.create.NetworkLocator()
+    loc["URLString"].value = locator_url(path)
+    return loc
 
 
 def _wave_summary(mf: MediaFile) -> bytes:
@@ -89,7 +120,7 @@ class AAFWriter:
         embed = self.embed and can_embed(mf)
         imp.descriptor = f.create.ImportDescriptor()
         if not embed:  # embedded media may come from a temporary folder: no locator
-            imp.descriptor["Locator"].append(create_network_locator(f, path))
+            imp.descriptor["Locator"].append(_locator(f, path))
         f.content.mobs.append(imp)
         for _ in range(mf.channels):
             s = imp.create_empty_slot(edit_rate=mf.sample_rate, media_kind="sound")
@@ -112,7 +143,7 @@ class AAFWriter:
             desc["Length"].value = mf.frames
             desc["Summary"].value = bytearray(_wave_summary(mf))
             desc["ContainerFormat"].value = f.dictionary.lookup_containerdef("AAF")
-            desc["Locator"].append(create_network_locator(f, path))
+            desc["Locator"].append(_locator(f, path))
             fm.descriptor = desc
 
         mm = f.create.MasterMob()
