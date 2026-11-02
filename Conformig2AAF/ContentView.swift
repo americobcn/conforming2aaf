@@ -42,7 +42,7 @@ struct ContentView: View {
                 Text("\(n)")
                     .font(.caption.bold())
                     .frame(width: 20, height: 20)
-                    .background(Circle().fill(Color.accentColor))
+                    .background(.tint, in: .circle)
                     .foregroundStyle(.white)
             }
             content()

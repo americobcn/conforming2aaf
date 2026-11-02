@@ -23,11 +23,11 @@ struct DropZoneView: View {
         }
         .frame(maxWidth: .infinity, minHeight: 120)
         .padding(12)
-        .background(
+        .background {
             RoundedRectangle(cornerRadius: 10)
                 .strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [6]))
                 .foregroundStyle(isTargeted ? Color.accentColor : Color.secondary.opacity(0.5))
-        )
+        }
         .dropDestination(for: URL.self) { urls, _ in
             guard let url = urls.first(where: { Self.exts.contains($0.pathExtension.lowercased()) }) else { return false }
             model.setInput(url)
