@@ -19,6 +19,19 @@ final class ConformModel {
         }
     }
 
+    /// Picture lists carry cuts, not audio: the production sound is conformed to each cut.
+    enum PictureMode: String, CaseIterable, Identifiable {
+        case auto, on, off
+        var id: Self { self }
+        var label: String {
+            switch self {
+            case .auto: "Automático"
+            case .on: "Sí"
+            case .off: "No"
+            }
+        }
+    }
+
     var inputURL: URL?
     var mediaFolders: [URL] = []
     var includeSubfolders = true
@@ -27,6 +40,7 @@ final class ConformModel {
     var sampleRate = 48000
     var mediaMode = MediaMode.link
     var splitMono = true
+    var pictureMode = PictureMode.auto
     var choices: [String: String] = [:]  // clip id -> chosen file path
 
     var report: EngineReport?
@@ -43,7 +57,7 @@ final class ConformModel {
     /// Changes that require a new analysis.
     var inspectKey: String {
         let picks = choices.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }
-        return ([inputURL?.path ?? "", "\(includeSubfolders)", isEDL ? fps : ""]
+        return ([inputURL?.path ?? "", "\(includeSubfolders)", isEDL ? fps : "", pictureMode.rawValue]
                 + mediaFolders.map(\.path) + picks).joined(separator: "|")
     }
 
@@ -104,6 +118,7 @@ final class ConformModel {
         for folder in mediaFolders { args += ["--media", folder.path] }
         if !includeSubfolders { args.append("--no-recursive") }
         if isEDL { args += ["--fps", fps] }
+        args += ["--picture", pictureMode.rawValue]
         let tc = startTC.trimmingCharacters(in: .whitespaces)
         if !tc.isEmpty { args += ["--start-tc", tc] }
         for (id, path) in choices.sorted(by: { $0.key < $1.key }) { args += ["--choose", "\(id)=\(path)"] }

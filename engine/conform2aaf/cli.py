@@ -3,7 +3,7 @@
     conform2aaf inspect INPUT --media DIR [--media DIR ...] [--fps 25]
     conform2aaf convert INPUT --media DIR --out OUT.aaf [--fps 25] [--start-tc 01:00:00:00]
                         [--sample-rate 48000] [--choose T:C=/path/file.wav ...]
-                        [--media-mode link|copy|embed] [--split-mono]
+                        [--media-mode link|copy|embed] [--split-mono] [--picture auto|on|off]
 """
 from __future__ import annotations
 
@@ -18,6 +18,7 @@ from .media.prepare import MODES, prepare_media
 from .media.riff import read_wav
 from .media.scanner import scan
 from .model import Timeline
+from .picture import expand_to_channels
 from .readers import read_timeline
 from .timecode import FrameRate, frames_to_tc, tc_to_frames
 from .writers.aaf import write_aaf
@@ -45,6 +46,9 @@ def report(tl: Timeline, counts: dict) -> dict:
                 "record_out": _tc(c.record_out, tl.rate),
                 "source_in": _tc(c.source_in, tl.rate),
                 "channel": c.channel,
+                "scene": c.scene,
+                "take": c.take,
+                "tape": c.tape,
                 "status": c.match_status,
                 "note": c.match_note,
                 "file": str(c.media.path) if c.media else None,
@@ -55,6 +59,7 @@ def report(tl: Timeline, counts: dict) -> dict:
             "name": tl.name,
             "rate": str(tl.rate),
             "start_tc": _tc(tl.start, tl.rate),
+            "picture": tl.picture,
             "tracks": [{"name": t.name, "clips": len(t.clips)} for t in tl.tracks],
         },
         "counts": counts,
@@ -65,7 +70,7 @@ def report(tl: Timeline, counts: dict) -> dict:
 def _prepare(args) -> tuple[Timeline, dict]:
     rate = FrameRate.parse(args.fps) if args.fps else None
     emit("progress", stage="read", message=f"Leyendo {Path(args.input).name}")
-    tl = read_timeline(Path(args.input), rate)
+    tl = read_timeline(Path(args.input), rate, {"auto": None, "on": True, "off": False}[args.picture])
     if args.start_tc:
         tl.start = Fraction(tc_to_frames(args.start_tc, tl.rate)) / tl.rate.fps
     for w in tl.warnings:
@@ -101,6 +106,7 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--fps")
         p.add_argument("--start-tc")
         p.add_argument("--choose", action="append")
+        p.add_argument("--picture", choices=("auto", "on", "off"), default="auto")
         if name == "convert":
             p.add_argument("--out", required=True)
             p.add_argument("--sample-rate", type=int, default=48000)
@@ -114,6 +120,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.cmd == "convert":
             emit("progress", stage="write", message="Escribiendo AAF")
             out = Path(args.out)
+            skipped_pictures = expand_to_channels(tl) if tl.picture else 0
             with prepare_media(tl, out, args.media_mode, args.split_mono,
                                lambda m: emit("progress", stage="media", message=m)) as media:
                 for w in media.warnings:
@@ -123,6 +130,7 @@ def main(argv: list[str] | None = None) -> int:
                 embed = args.media_mode == "embed"
                 media_files = res.embedded_files if embed else media.files
                 media_bytes = res.embedded_bytes if embed else media.bytes
+            res.clips_skipped += skipped_pictures
             for w in res.warnings:
                 emit("warning", message=w)
             emit("result", output=str(out.resolve()),

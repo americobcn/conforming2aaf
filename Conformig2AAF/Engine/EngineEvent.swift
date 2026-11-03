@@ -28,6 +28,7 @@ nonisolated struct EngineReport: Decodable, Sendable {
         let name: String
         let rate: String
         let startTc: String?
+        let picture: Bool?
         let tracks: [TrackInfo]
     }
     struct TrackInfo: Decodable, Sendable {
@@ -47,6 +48,9 @@ nonisolated struct ClipRow: Decodable, Identifiable, Hashable, Sendable {
     let recordOut: String?
     let sourceIn: String?
     let channel: Int?
+    let scene: String?
+    let take: String?
+    let tape: String?
     let status: String
     let note: String
     let file: String?

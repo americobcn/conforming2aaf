@@ -105,3 +105,51 @@ def test_convert_embed(tmp_path, wav_factory):
     assert not (tmp_path / "poly Media").exists()
     with aaf2.open(str(out), "r") as f:
         assert len(list(f.content.essencedata)) == 2
+
+
+def _picture_setup(tmp_path, wav_factory):
+    names = ["MIXDOWN L", "MIXDOWN R", "Boom 1"]
+    wav_factory("media/SL1.wav", seconds=6, channels=3, time_reference=36000 * SR, scene="5 12", take="3", track_names=names)
+    wav_factory("media/SL2.wav", seconds=6, channels=3, time_reference=36000 * SR, scene="5 12", take="4", track_names=names)
+    edl = tmp_path / "pic.edl"
+    edl.write_text(
+        "TITLE: PIC\nFCM: NON-DROP FRAME\n\n"
+        "001  A001C002  V  C  10:00:01:00 10:00:03:00 01:00:00:00 01:00:02:00\n"
+        "* FROM CLIP NAME: A001_C002.mov\n* SCENE: 05/12\n* TAKE: 4\n\n"
+        "002  A001C009  V  C  15:00:00:00 15:00:01:00 01:00:02:00 01:00:03:00\n"
+    )
+    return edl, tmp_path / "media"
+
+
+def test_picture_list_is_detected_and_matched_by_tc_and_take(tmp_path, wav_factory):
+    edl, media = _picture_setup(tmp_path, wav_factory)
+    code, events = run("inspect", edl, "--media", media, "--fps", "25")
+    assert code == 0, events
+    (rep,) = [e for e in events if e["type"] == "report"]
+    assert rep["timeline"]["picture"] is True
+    assert rep["counts"] == {"matched": 1, "ambiguous": 0, "missing": 1}
+    first = rep["clips"][0]
+    assert first["file"].endswith("SL2.wav") and (first["scene"], first["take"]) == ("05/12", "4")
+    assert any("Lista de imagen" in e["message"] for e in events if e["type"] == "warning")
+
+
+def test_picture_off_reads_no_clips(tmp_path, wav_factory):
+    edl, media = _picture_setup(tmp_path, wav_factory)
+    code, events = run("inspect", edl, "--media", media, "--fps", "25", "--picture", "off")
+    (rep,) = [e for e in events if e["type"] == "report"]
+    assert rep["timeline"]["picture"] is False and rep["clips"] == []
+
+
+def test_convert_picture_list_writes_one_track_per_channel(tmp_path, wav_factory):
+    edl, media = _picture_setup(tmp_path, wav_factory)
+    out = tmp_path / "out" / "pic.aaf"
+    code, events = run("convert", edl, "--media", media, "--fps", "25", "--out", out,
+                       "--media-mode", "copy", "--split-mono")
+    assert code == 0, events
+    (res,) = [e for e in events if e["type"] == "result"]
+    assert (res["clips_written"], res["clips_skipped"]) == (3, 1)  # 3 channels; the unmatched cut is counted
+    assert res["media_files"] == 3
+    with aaf2.open(str(out), "r") as f:
+        comp = next(f.content.compositionmobs())
+        assert [s.name for s in comp.slots if s.media_kind == "Sound"] == ["1 MIXDOWN L", "2 MIXDOWN R", "3 Boom 1"]
+        assert sorted(m.name for m in f.content.mastermobs()) == ["SL2_1", "SL2_2", "SL2_3"]

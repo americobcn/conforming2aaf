@@ -15,6 +15,11 @@ struct ExportOptionsView: View {
             TextField("TC de inicio", text: $model.startTC, prompt: Text("El de la lista"))
                 .help("Opcional, p. ej. 00:59:50:00")
 
+            Picker("Lista de imagen", selection: $model.pictureMode) {
+                ForEach(ConformModel.PictureMode.allCases) { Text($0.label).tag($0) }
+            }
+            .help("Una lista solo con cortes de imagen se concilia con el sonido directo de cada corte, enlazado por TC y por escena, toma y cinta. Automático lo detecta si la lista no tiene audio.")
+
             Picker("Frecuencia de muestreo", selection: $model.sampleRate) {
                 ForEach(ConformModel.sampleRates, id: \.self) { Text("\($0) Hz") }
             }
