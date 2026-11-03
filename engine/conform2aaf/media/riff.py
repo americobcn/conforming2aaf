@@ -1,6 +1,7 @@
 """Read-only RIFF/RF64 WAV metadata parser (fmt, bext, iXML, LIST/INFO, axml, XMP)."""
 from __future__ import annotations
 
+import re
 import struct
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -45,6 +46,19 @@ def read_chunks(path: Path) -> dict[str, tuple[int, int]]:
 def head_is_rf64(path: Path) -> bool:
     with open(path, "rb") as f:
         return f.read(4) in (b"RF64", b"BW64")
+
+
+_BEXT_KEY = re.compile(r"^[A-Za-z]?(SCENE|TAKE|TAPE)\s*=\s*(.*)$", re.I)
+
+
+def parse_bext_description(text: str) -> dict:
+    """Scene/take/tape from `key=value` lines of a bext description (`aSCENE=20 54`, `sTAKE=3`)."""
+    out: dict = {}
+    for line in text.splitlines():
+        m = _BEXT_KEY.match(line.strip())
+        if m and m.group(2).strip():
+            out.setdefault(m.group(1).lower(), m.group(2).strip())
+    return out
 
 
 def parse_ixml(xml_text: str) -> dict:
@@ -95,6 +109,9 @@ def read_wav(path: Path) -> MediaFile:
             mf.take = ix.get("take", "")
             mf.tape = ix.get("tape", "")
             mf.track_names = ix["track_names"]
+        for key, value in parse_bext_description(mf.description).items():
+            if not getattr(mf, key):  # iXML wins; the bext description only fills gaps
+                setattr(mf, key, value)
         if "LIST" in chunks:
             lst = payload("LIST")
             if lst[:4] == b"INFO":

@@ -61,6 +61,9 @@ class Clip:
     # crossfade_pre is how much of the crossfade lies before the cut.
     crossfade_in: Fraction = Fraction(0)
     crossfade_pre: Fraction = Fraction(0)
+    scene: str = ""  # from the edit list (picture metadata), used to match production audio
+    take: str = ""
+    tape: str = ""
     media: MediaFile | None = None
     match_status: str = "unmatched"  # matched | ambiguous | missing
     match_note: str = ""
@@ -84,6 +87,7 @@ class Timeline:
     start: Fraction = Fraction(0)  # record TC of the timeline start, seconds
     tracks: list[Track] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    picture: bool = False  # clips are picture cuts: production sound is conformed to them
 
     def clips(self):
         for t in self.tracks:

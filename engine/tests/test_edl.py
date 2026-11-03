@@ -92,3 +92,42 @@ def test_simultaneous_events_take_source_channels_in_track_order(tmp_path):
     assert [t.name for t in tl.tracks] == ["A2", "A3", "A4", "A5", "A6"]
     by_track = {t.name: [c.channel for c in t.clips] for t in tl.tracks}
     assert by_track == {"A2": [1], "A3": [1], "A4": [2], "A5": [3], "A6": [4]}
+
+
+PIC_EDL = """TITLE: PIC
+FCM: NON-DROP FRAME
+
+001  A001C002 V     C        10:00:01:00 10:00:03:00 01:00:00:00 01:00:02:00
+* FROM CLIP NAME: A001_C002.mov
+* SCENE: 5 12
+* TAKE: 3
+* TAPE: 1113
+
+002  BL       V     C        00:00:00:00 00:00:01:00 01:00:02:00 01:00:03:00
+
+003  A001C003 V     D    012 10:05:00:00 10:05:02:00 01:00:03:00 01:00:05:00
+
+004  A002C001 AA/V  C        11:00:00:00 11:00:01:00 01:00:05:00 01:00:06:00
+"""
+
+
+def test_picture_mode_reads_video_events_as_clips(tmp_path):
+    p = tmp_path / "pic.edl"
+    p.write_text(PIC_EDL)
+    tl = read_edl(p, FrameRate.parse("25"), picture=True)
+    assert tl.picture and [t.name for t in tl.tracks] == ["V"]
+    first, second, third = tl.tracks[0].clips  # black skipped, AA/V event kept as one picture clip
+    assert (first.name, first.reel, first.channel) == ("A001_C002.mov", "A001C002", None)
+    assert (first.scene, first.take, first.tape) == ("5 12", "3", "1113")
+    assert first.record_in == F(3600) and first.duration == F(2) and first.source_in == F(36001)
+    assert second.name == "A001C003" and second.fade_in == 0 and second.crossfade_in == 0
+    assert third.name == "A002C001" and third.source_in == F(39600)
+    assert tl.start == F(3600)
+
+
+def test_audio_mode_ignores_picture_only_events(tmp_path):
+    p = tmp_path / "pic.edl"
+    p.write_text(PIC_EDL)
+    tl = read_edl(p, FrameRate.parse("25"))
+    assert not tl.picture
+    assert [c.name for c in tl.clips()] == ["A002C001", "A002C001"]  # only the AA/V event has audio

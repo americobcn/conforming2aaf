@@ -2,7 +2,7 @@ from fractions import Fraction
 
 import pytest
 
-from conform2aaf.media.riff import NotAWav, read_wav
+from conform2aaf.media.riff import NotAWav, parse_bext_description, read_wav
 
 
 def test_reads_bwf_ixml_and_info(wav_factory):
@@ -48,3 +48,24 @@ def test_not_a_wav(tmp_path):
     p.write_bytes(b"hello world, not riff")
     with pytest.raises(NotAWav):
         read_wav(p)
+
+
+REAL_BEXT = ("aUBITS=$13112500\r\naSCENE=20 54    \r\naTAKE=4     \r\naTAPE=1113\r\n"
+             "aSPEED=025.000-ND\r\naTAG=SL7787\r\naNOTE=   \r\naTYP=poly \r\n")
+
+
+def test_parse_bext_description():
+    assert parse_bext_description(REAL_BEXT) == {"scene": "20 54", "take": "4", "tape": "1113"}
+    assert parse_bext_description("sSCENE=1\nsTAKE=2") == {"scene": "1", "take": "2"}
+    assert parse_bext_description("TAKE=7") == {"take": "7"}
+    assert parse_bext_description("just a description") == {}
+
+
+def test_bext_description_fills_missing_scene_take_tape(wav_factory):
+    mf = read_wav(wav_factory("b.wav", seconds=0.1, time_reference=0, description=REAL_BEXT))
+    assert (mf.scene, mf.take, mf.tape) == ("20 54", "4", "1113")
+
+
+def test_ixml_wins_over_bext_description(wav_factory):
+    mf = read_wav(wav_factory("c.wav", seconds=0.1, time_reference=0, description=REAL_BEXT, scene="7", take="2"))
+    assert (mf.scene, mf.take, mf.tape) == ("7", "2", "1113")  # tape missing in iXML -> from bext

@@ -33,6 +33,10 @@ class _Line:
     name: str = ""
     hint: str = ""
     gains: dict[int, float] = field(default_factory=dict)
+    video: bool = False
+    scene: str = ""
+    take: str = ""
+    tape: str = ""
 
 
 def _channels(field_: str) -> list[int]:
@@ -47,7 +51,11 @@ def _channels(field_: str) -> list[int]:
     return out
 
 
-def read_edl(path: Path, rate: FrameRate) -> Timeline:
+def _has_video(field_: str) -> bool:
+    return any(part in ("V", "B") for part in field_.upper().split("/"))
+
+
+def read_edl(path: Path, rate: FrameRate, picture: bool = False) -> Timeline:
     text = Path(path).read_text(encoding="utf-8", errors="replace")
     title = Path(path).stem
     drop = False
@@ -70,6 +78,7 @@ def read_edl(path: Path, rate: FrameRate) -> Timeline:
             ev, reel, chans, trans, dur, si, so, ri, ro = m.groups()
             tcs = [tc_to_frames(t, eff()) for t in (si, so, ri, ro)]
             lines.append(_Line(ev, reel, _channels(chans), trans, int(dur or 0), *tcs))
+            lines[-1].video = _has_video(chans)
             if trans[0] in "WK":
                 warnings.append(f"Evento {ev}: transición {trans} tratada como corte")
         elif lines and (m := AUD_RE.match(up)):
@@ -87,11 +96,15 @@ def read_edl(path: Path, rate: FrameRate) -> Timeline:
                 group[-1].name = val
             elif key in ("SOURCE FILE", "SOURCE FILE NAME"):
                 lines[-1].hint = val
+            elif key in ("SCENE", "TAKE", "TAPE"):
+                setattr(lines[-1], key.lower(), val)
             elif lm := LEVEL_RE.search(body):
                 lines[-1].gains[int(lm.group(2)[1:])] = float(lm.group(1))
 
     eff_rate = eff()
     fps = eff_rate.fps
+    if picture:
+        return _picture_timeline(title, eff_rate, lines, warnings)
     tracks: dict[int, Track] = {}
     placed: list[tuple[int, Clip]] = []  # (destination track number, clip)
     for i, ln in enumerate(lines):
@@ -143,4 +156,33 @@ def read_edl(path: Path, rate: FrameRate) -> Timeline:
         start=min(starts) if starts else Fraction(0),
         tracks=ordered,
         warnings=warnings,
+    )
+
+
+def _picture_timeline(title: str, rate: FrameRate, lines: list[_Line], warnings: list[str]) -> Timeline:
+    """One clip per picture event (no channel): production sound is conformed to these cuts."""
+    fps = rate.fps
+    clips: list[Clip] = []
+    for ln in lines:
+        if not ln.video or ln.reel.upper() in BLACK or ln.rec_out <= ln.rec_in:
+            continue
+        clips.append(Clip(
+            name=ln.name or ln.reel,
+            record_in=Fraction(ln.rec_in) / fps,
+            duration=Fraction(ln.rec_out - ln.rec_in) / fps,
+            source_in=Fraction(ln.src_in) / fps,
+            reel=ln.reel,
+            file_hint=ln.hint,
+            scene=ln.scene,
+            take=ln.take,
+            tape=ln.tape,
+        ))
+    clips.sort(key=lambda c: c.record_in)
+    return Timeline(
+        name=title,
+        rate=rate,
+        start=clips[0].record_in if clips else Fraction(0),
+        tracks=[Track("V", clips)] if clips else [],
+        warnings=warnings,
+        picture=True,
     )

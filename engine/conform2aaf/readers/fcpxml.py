@@ -44,7 +44,8 @@ def _db(s: str | None) -> float:
 
 
 class _Reader:
-    def __init__(self, resources: dict[str, ET.Element], warnings: list[str]):
+    def __init__(self, resources: dict[str, ET.Element], warnings: list[str], picture: bool = False):
+        self.picture = picture
         self.res = resources
         self.warnings = warnings
         self.items: list[tuple[str, int, Clip]] = []  # (role, channel position, clip)
@@ -115,7 +116,11 @@ class _Reader:
 
         emitted: list[Clip] = []
         tag = e.tag
-        if tag in ("asset-clip", "audio"):
+        if self.picture:
+            if tag == "asset-clip" or (tag == "video" and self.res.get(e.get("ref")) is not None
+                                       and self.res[e.get("ref")].tag == "asset"):
+                emitted += self._emit_picture(e, rec_in, s, d, w)
+        elif tag in ("asset-clip", "audio"):
             emitted += self._emit_asset(e, rec_in, s, d, w)
         elif tag in ("clip", "sync-clip", "video"):
             for c in e:
@@ -155,6 +160,39 @@ class _Reader:
                 if c.tag in STORY:
                     out += self.walk_item(c, L, w, depth + 1)
         return out
+
+    @staticmethod
+    def _metadata(el) -> dict[str, str]:
+        """scene/take/reel from <metadata><md key="com.apple.proapps.studio.scene" value=...>."""
+        out: dict[str, str] = {}
+        for md in el.findall("metadata/md"):
+            key = (md.get("key") or "").rsplit(".", 1)[-1].lower()
+            if key in ("scene", "take", "reel") and md.get("value"):
+                out[key] = md.get("value").strip()
+        return out
+
+    def _emit_picture(self, e, rec_in, s, d, w) -> list[Clip]:
+        asset = self.res.get(e.get("ref"))
+        if asset is None or asset.tag != "asset" or asset.get("hasVideo") == "0":
+            return []
+        a, b = max(rec_in, w[0]), min(rec_in + d, w[1])
+        if b <= a:
+            return []
+        rep = asset.find("media-rep")
+        hint = _src(rep.get("src")) if rep is not None and rep.get("src") else _src(asset.get("src") or "")
+        meta = {**self._metadata(asset), **self._metadata(e)}  # the clip's own metadata wins
+        c = Clip(
+            name=e.get("name") or asset.get("name") or "",
+            record_in=a,
+            duration=b - a,
+            source_in=s + (a - rec_in),
+            reel=meta.get("reel", ""),
+            file_hint=hint or asset.get("name") or "",
+            scene=meta.get("scene", ""),
+            take=meta.get("take", ""),
+        )
+        self.items.append(("V", 0, c))
+        return [c]
 
     def _emit_asset(self, e, rec_in, s, d, w) -> list[Clip]:
         asset = self.res.get(e.get("ref"))
@@ -227,7 +265,7 @@ def _build_tracks(items: list[tuple[str, int, Clip]]) -> list[Track]:
     return tracks
 
 
-def read_fcpxml(path: Path) -> Timeline:
+def read_fcpxml(path: Path, picture: bool = False) -> Timeline:
     p = Path(path)
     if p.is_dir():
         p = p / "Info.fcpxml"
@@ -251,7 +289,7 @@ def read_fcpxml(path: Path) -> Timeline:
         else:
             raise
     start = _t(seq.get("tcStart"))
-    reader = _Reader(resources, warnings)
+    reader = _Reader(resources, warnings, picture)
     reader.walk_spine(seq.find("spine"), lambda t: t, (Fraction(-(10**9)), Fraction(10**9)), 0)
     return Timeline(name=project.get("name") or p.stem, rate=rate, start=start,
-                    tracks=_build_tracks(reader.items), warnings=warnings)
+                    tracks=_build_tracks(reader.items), warnings=warnings, picture=picture)

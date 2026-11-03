@@ -97,3 +97,52 @@ def test_fcpxmld_bundle(tmp_path):
     d.mkdir()
     (d / "Info.fcpxml").write_text(FCPXML)
     assert read_fcpxml(d).name == "P1"
+
+
+PIC_FCPXML = """<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE fcpxml>
+<fcpxml version="1.10">
+ <resources>
+  <format id="r1" frameDuration="1/25s"/>
+  <asset id="r2" name="A001C002" start="36000s" duration="60s" hasVideo="1" hasAudio="1" audioChannels="2">
+   <media-rep kind="original-media" src="file:///Volumes/Cam/A001C002.mov"/>
+   <metadata>
+    <md key="com.apple.proapps.studio.scene" value="5 12"/>
+    <md key="com.apple.proapps.studio.take" value="3"/>
+    <md key="com.apple.proapps.studio.reel" value="A001"/>
+   </metadata>
+  </asset>
+  <asset id="r3" name="Music" start="0s" duration="10s" hasVideo="0" hasAudio="1" audioChannels="2">
+   <media-rep kind="original-media" src="file:///Volumes/Music/music.wav"/>
+  </asset>
+ </resources>
+ <library><event name="E"><project name="P">
+  <sequence format="r1" tcStart="3600s" tcFormat="NDF"><spine>
+   <asset-clip ref="r2" offset="3600s" start="36001s" duration="2s" name="A001C002"/>
+   <asset-clip ref="r2" offset="3602s" start="36010s" duration="3s" name="A001C002 b">
+    <metadata><md key="com.apple.proapps.studio.take" value="9"/></metadata>
+   </asset-clip>
+   <asset-clip ref="r3" offset="3605s" start="0s" duration="1s" name="Music"/>
+  </spine></sequence>
+ </project></event></library>
+</fcpxml>
+"""
+
+
+def test_picture_mode_reads_video_clips_with_metadata(tmp_path):
+    p = tmp_path / "pic.fcpxml"
+    p.write_text(PIC_FCPXML)
+    tl = read_fcpxml(p, picture=True)
+    assert tl.picture and [t.name for t in tl.tracks] == ["V"]
+    a, b = tl.tracks[0].clips  # the audio-only asset is skipped
+    assert (a.record_in, a.duration, a.source_in, a.channel) == (3600, 2, 36001, None)
+    assert (a.scene, a.take, a.reel) == ("5 12", "3", "A001")
+    assert a.file_hint == "/Volumes/Cam/A001C002.mov"
+    assert (b.take, b.scene) == ("9", "5 12")  # clip metadata wins over the asset's
+
+
+def test_audio_mode_reads_audio_of_all_assets(tmp_path):
+    p = tmp_path / "pic.fcpxml"
+    p.write_text(PIC_FCPXML)
+    tl = read_fcpxml(p)
+    assert not tl.picture and len(list(tl.clips())) == 6  # 2 camera clips x 2 channels + the music asset x 2 channels

@@ -62,7 +62,7 @@ def _gain_db(item, warnings: list[str], name: str) -> float:
     return 0.0
 
 
-def read_xmeml(path: Path) -> Timeline:
+def read_xmeml(path: Path, picture: bool = False) -> Timeline:
     root = ET.parse(path).getroot()
     seq = root.find(".//sequence")
     if seq is None:
@@ -75,6 +75,8 @@ def read_xmeml(path: Path) -> Timeline:
     warnings: list[str] = []
 
     files = {f.get("id"): f for f in root.iter("file") if f.get("id") and len(f)}
+    if picture:
+        return _read_picture(seq, files, fps, rate, start, warnings, path)
 
     tracks: list[Track] = []
     for ti, tr in enumerate(seq.findall("media/audio/track"), 1):
@@ -163,3 +165,56 @@ def read_xmeml(path: Path) -> Timeline:
 
     return Timeline(name=seq.findtext("name") or Path(path).stem, rate=rate, start=start,
                     tracks=tracks, warnings=warnings)
+
+
+def _read_picture(seq, files, fps: Fraction, rate: FrameRate, start: Fraction, warnings: list[str], path: Path) -> Timeline:
+    """One clip per video clipitem (no channel), with scene/take/reel from the list's metadata."""
+    tracks: list[Track] = []
+    for ti, tr in enumerate(seq.findall("media/video/track"), 1):
+        if (tr.findtext("enabled") or "TRUE").upper() == "FALSE":
+            warnings.append(f"Pista V{ti} desactivada: omitida")
+            continue
+        items = [el for el in tr if el.tag in ("clipitem", "transitionitem")]
+        track = Track(f"V{ti}")
+        for i, el in enumerate(items):
+            if el.tag != "clipitem":
+                continue
+            name = el.findtext("name") or ""
+            if (el.findtext("enabled") or "TRUE").upper() == "FALSE":
+                warnings.append(f"{name}: clip desactivado, omitido")
+                continue
+            s_, e_, in_ = _int(el, "start", -1), _int(el, "end", -1), _int(el, "in", 0)
+            # start/end of -1 mean "under a transition": use the centre of the neighbouring transition
+            if s_ < 0 and i and items[i - 1].tag == "transitionitem":
+                t = items[i - 1]
+                cut = (_int(t, "start", 0) + _int(t, "end", 0)) // 2
+                in_ += cut - _int(t, "start", 0)
+                s_ = cut
+            if e_ < 0 and i + 1 < len(items) and items[i + 1].tag == "transitionitem":
+                t = items[i + 1]
+                e_ = (_int(t, "start", 0) + _int(t, "end", 0)) // 2
+            if s_ < 0 or e_ <= s_:
+                warnings.append(f"{name}: posición no válida, omitido")
+                continue
+            f = el.find("file")
+            if f is not None and f.get("id") in files:
+                f = files[f.get("id")]
+            item_fps = _rate(el.find("rate")) or fps
+            file_tc = _tc_seconds(f.find("timecode") if f is not None else None, item_fps)
+            hint = _path_from_url(f.findtext("pathurl") or "") if f is not None else ""
+            hint = hint or (f.findtext("name") if f is not None else "") or ""
+            li = el.find("logginginfo")
+            track.clips.append(Clip(
+                name=name,
+                record_in=start + Fraction(s_) / fps,
+                duration=Fraction(e_ - s_) / fps,
+                source_in=(file_tc + Fraction(in_) / item_fps) if file_tc is not None else None,
+                reel=((f.findtext("timecode/reel/name") if f is not None else None) or "").strip(),
+                file_hint=hint,
+                scene=((li.findtext("scene") if li is not None else None) or "").strip(),
+                take=((li.findtext("shottake") if li is not None else None) or "").strip(),
+            ))
+        if track.clips:
+            tracks.append(track)
+    return Timeline(name=seq.findtext("name") or Path(path).stem, rate=rate, start=start,
+                    tracks=tracks, warnings=warnings, picture=True)

@@ -64,3 +64,57 @@ def test_reads_xmeml(tmp_path):
     l, r = tl.tracks[1].clips[0], tl.tracks[2].clips[0]
     assert (l.channel, r.channel) == (1, 2) and l.source_in is None and l.file_hint == "music.wav"
     assert any("desactivada" in w for w in tl.warnings)
+
+
+PIC_XML = """<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE xmeml>
+<xmeml version="4">
+ <sequence id="seq-1">
+  <name>Pic</name>
+  <rate><timebase>25</timebase><ntsc>FALSE</ntsc></rate>
+  <timecode><rate><timebase>25</timebase><ntsc>FALSE</ntsc></rate>
+   <string>01:00:00:00</string><frame>90000</frame><displayformat>NDF</displayformat></timecode>
+  <media>
+   <video><track>
+    <clipitem id="v1">
+     <name>A001C002</name><start>0</start><end>50</end><in>25</in><out>75</out>
+     <logginginfo><scene>5 12</scene><shottake>3</shottake></logginginfo>
+     <file id="f1"><name>A001C002.mov</name>
+      <pathurl>file://localhost/Volumes/Cam/A001C002.mov</pathurl>
+      <timecode><rate><timebase>25</timebase><ntsc>FALSE</ntsc></rate>
+       <string>10:00:00:00</string><frame>900000</frame><displayformat>NDF</displayformat>
+       <reel><name>A001</name></reel></timecode>
+     </file>
+    </clipitem>
+    <clipitem id="v2"><name>A001C003</name><start>50</start><end>100</end><in>0</in><out>50</out>
+     <enabled>FALSE</enabled><file id="f1"/></clipitem>
+    <clipitem id="v3"><name>A001C004</name><start>100</start><end>150</end><in>50</in><out>100</out><file id="f1"/></clipitem>
+   </track></video>
+   <audio><track>
+    <clipitem id="a1"><name>camera audio</name><start>0</start><end>50</end><in>0</in><out>50</out><file id="f1"/>
+     <sourcetrack><mediatype>audio</mediatype><trackindex>1</trackindex></sourcetrack></clipitem>
+   </track></audio>
+  </media>
+ </sequence>
+</xmeml>
+"""
+
+
+def test_picture_mode_reads_video_clips_with_metadata(tmp_path):
+    p = tmp_path / "pic.xml"
+    p.write_text(PIC_XML)
+    tl = read_xmeml(p, picture=True)
+    assert tl.picture and [t.name for t in tl.tracks] == ["V1"]
+    a, b = tl.tracks[0].clips  # the disabled clip is skipped
+    assert (a.name, a.channel, a.reel, a.scene, a.take) == ("A001C002", None, "A001", "5 12", "3")
+    assert a.record_in == F(3600) and a.duration == F(2) and a.source_in == F(36001)
+    assert a.file_hint == "/Volumes/Cam/A001C002.mov"
+    assert b.name == "A001C004" and b.record_in == F(3604) and b.source_in == F(36002)
+    assert any("desactivado" in w for w in tl.warnings)
+
+
+def test_audio_mode_still_reads_audio_tracks(tmp_path):
+    p = tmp_path / "pic.xml"
+    p.write_text(PIC_XML)
+    tl = read_xmeml(p)
+    assert not tl.picture and [c.name for c in tl.clips()] == ["camera audio"]

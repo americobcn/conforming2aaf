@@ -86,3 +86,110 @@ def test_missing(tmp_path, wav_factory):
     c = clip(name="nothing", source_in=F(5))
     Matcher(files).match_clip(c)
     assert c.match_status == "missing"
+
+
+# ---- picture lists: camera names never match production names -> TC and metadata decide ----
+from conform2aaf.media.matcher import normalize_id  # noqa: E402
+from conform2aaf.timecode import FrameRate  # noqa: E402
+
+R25 = FrameRate.parse("25")
+
+
+def pclip(source_in, dur=F(2), scene="", take="", tape="", reel="", name="A001C002"):
+    return Clip(name=name, record_in=F(0), duration=dur, source_in=source_in, reel=reel,
+                scene=scene, take=take, tape=tape)
+
+
+def test_normalize_id():
+    assert normalize_id("5 12") == normalize_id("5/12") == normalize_id("05-12") == "5-12"
+    assert normalize_id("12A") == normalize_id("012a")
+    assert normalize_id("1 12") != normalize_id("11 2")
+    assert normalize_id("  ") == ""
+
+
+def test_picture_clip_matches_by_tc_only(tmp_path, wav_factory):
+    wav_factory("SL1.wav", seconds=10, time_reference=H10 * SR)
+    files, _ = scan([tmp_path])
+    c = pclip(F(H10 + 3))
+    Matcher(files).match_clip(c, R25)
+    assert c.match_status == "matched" and c.media.stem == "SL1" and c.match_note == "Enlazado por TC"
+
+
+def test_scene_take_breaks_a_tc_tie(tmp_path, wav_factory):
+    wav_factory("t1.wav", seconds=10, time_reference=H10 * SR, scene="5 12", take="3")
+    wav_factory("t2.wav", seconds=10, time_reference=H10 * SR, scene="5 12", take="4")
+    files, _ = scan([tmp_path])
+    c = pclip(F(H10 + 1), scene="05/12", take="4")
+    Matcher(files).match_clip(c, R25)
+    assert c.match_status == "matched" and c.media.stem == "t2"
+    assert "escena/toma" in c.match_note
+
+
+def test_tape_breaks_a_tc_tie_scene_take_still_ambiguous_without_metadata(tmp_path, wav_factory):
+    wav_factory("a.wav", seconds=10, time_reference=H10 * SR, tape="1111")
+    wav_factory("b.wav", seconds=10, time_reference=H10 * SR, tape="1113")
+    files, _ = scan([tmp_path])
+    c = pclip(F(H10 + 1), tape="1113")
+    Matcher(files).match_clip(c, R25)
+    assert c.match_status == "matched" and c.media.stem == "b"
+    c2 = pclip(F(H10 + 1))
+    Matcher(files).match_clip(c2, R25)
+    assert c2.match_status == "ambiguous" and len(c2.candidates) == 2
+
+
+def test_tc_matches_but_scene_take_differ_is_ambiguous(tmp_path, wav_factory):
+    wav_factory("only.wav", seconds=10, time_reference=H10 * SR, scene="5", take="3")
+    files, _ = scan([tmp_path])
+    c = pclip(F(H10 + 1), scene="5", take="2")
+    Matcher(files).match_clip(c, R25)
+    assert c.match_status == "ambiguous" and c.media is None
+    assert "escena/toma" in c.match_note and "5/2" in c.match_note and "5/3" in c.match_note
+    assert [f.stem for f in c.candidates] == ["only"]
+
+
+def test_camera_reel_never_conflicts_with_sound_tape(tmp_path, wav_factory):
+    wav_factory("only.wav", seconds=10, time_reference=H10 * SR, tape="1113")
+    files, _ = scan([tmp_path])
+    c = pclip(F(H10 + 1), reel="A001")
+    Matcher(files).match_clip(c, R25)
+    assert c.match_status == "matched"
+
+
+def test_partial_overlap_matches_and_reports_missing_frames(tmp_path, wav_factory):
+    wav_factory("late.wav", seconds=4, time_reference=(H10 + 5) * SR)  # sound starts 5 s .. 9 s
+    files, _ = scan([tmp_path])
+    c = pclip(F(H10 + 4), dur=F(3))  # clip 4 s .. 7 s: 1 s (25 frames) missing at the start
+    Matcher(files).match_clip(c, R25)
+    assert c.match_status == "matched" and "faltan 25 fotogramas al principio" in c.match_note
+    d = pclip(F(H10 + 8), dur=F(3))  # 8 s .. 11 s: 2 s (50 frames) missing at the end
+    Matcher(files).match_clip(d, R25)
+    assert d.match_status == "matched" and "faltan 50 fotogramas al final" in d.match_note
+
+
+def test_no_overlap_is_missing(tmp_path, wav_factory):
+    wav_factory("x.wav", seconds=2, time_reference=H10 * SR)
+    files, _ = scan([tmp_path])
+    c = pclip(F(H10 + 100))
+    Matcher(files).match_clip(c, R25)
+    assert c.match_status == "missing"
+
+
+def test_full_coverage_preferred_over_partial(tmp_path, wav_factory):
+    wav_factory("full.wav", seconds=10, time_reference=H10 * SR)
+    wav_factory("tail.wav", seconds=10, time_reference=(H10 + 9) * SR)
+    files, _ = scan([tmp_path])
+    c = pclip(F(H10 + 8), dur=F(2))  # 8..10 s: inside full.wav, 1 s inside tail.wav
+    Matcher(files).match_clip(c, R25)
+    assert c.match_status == "matched" and c.media.stem == "full"
+
+
+def test_without_tc_scene_take_matches(tmp_path, wav_factory):
+    wav_factory("a.wav", seconds=1, scene="7", take="1")
+    wav_factory("b.wav", seconds=1, scene="7", take="2")
+    files, _ = scan([tmp_path])
+    c = Clip(name="CAM", record_in=F(0), duration=F(1), scene="07", take="2")
+    Matcher(files).match_clip(c, R25)
+    assert c.match_status == "matched" and c.media.stem == "b" and "escena/toma" in c.match_note
+    c2 = Clip(name="CAM", record_in=F(0), duration=F(1), scene="7")
+    Matcher(files).match_clip(c2, R25)
+    assert c2.match_status == "ambiguous" and len(c2.candidates) == 2
