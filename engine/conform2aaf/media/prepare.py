@@ -8,6 +8,7 @@ iXML track list is reduced to the channel that was extracted.
 """
 from __future__ import annotations
 
+import hashlib
 import shutil
 import struct
 import tempfile
@@ -42,6 +43,36 @@ def can_embed(mf: MediaFile) -> bool:
     return mf.channels == 1 and _embeddable_format(mf)
 
 
+def _channel_tag(channel: int) -> str:
+    return f"{channel:02d}"
+
+
+def _split_bext(payload: bytes, channel: int) -> bytes:
+    """Give the mono file its own identity.
+
+    Pro Tools identifies audio files by the bext UMID (and reference): six mono files cut
+    from one polyphonic file that share it are treated as one file, so every track shows
+    the first channel. The UMID material number becomes a hash of the original UMID and the
+    channel (deterministic and unique); the originator reference ends with the channel.
+    """
+    if len(payload) < 412:
+        return payload
+    b = bytearray(payload)
+    version = struct.unpack("<H", b[346:348])[0]
+    umid = bytes(b[348:412])
+    if version >= 1 and any(umid):
+        material = hashlib.sha256(umid + bytes([channel])).digest()[:16]
+        b[348:412] = umid[:16] + material + umid[32:]
+    ref = bytes(b[288:320])
+    n = len(ref.rstrip(b"\x00"))
+    if n >= 2:
+        b[288 + n - 2 : 288 + n] = _channel_tag(channel).encode()
+    history = bytes(b[602:])
+    if b"M=multi" in history:
+        b[602:] = history.replace(b"M=multi", b"M=mono", 1)
+    return bytes(b)
+
+
 def _mono_ixml(raw: bytes, channel: int) -> bytes:
     """Keep only the TRACK of `channel` in an iXML track list, renumbered to 1."""
     try:
@@ -64,6 +95,10 @@ def _mono_ixml(raw: bytes, channel: int) -> bytes:
     count = track_list.find("TRACK_COUNT")
     if count is not None:
         count.text = "1"
+    for el in root.iter("FILE_UID"):  # unique per file, like the bext identity
+        uid = (el.text or "").strip()
+        if len(uid) >= 2:
+            el.text = uid[:-2] + _channel_tag(channel)
     return ET.tostring(root, encoding="utf-8", xml_declaration=True)
 
 
@@ -88,6 +123,8 @@ def split_wav(src: MediaFile, channel: int, dest: Path) -> None:
                 payload = fin.read(size)
                 if cid == "iXML":
                     payload = _mono_ixml(payload, channel)
+                elif cid == "bext":
+                    payload = _split_bext(payload, channel)
                 parts.append((cid.encode("latin-1"), payload))
 
         def padded(n: int) -> int:

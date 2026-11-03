@@ -28,6 +28,11 @@ def make_wav(
     rf64: bool = False,
     fill: bool = False,
     extensible: bool = False,
+    umid: bytes | None = None,  # 64-byte bext UMID
+    originator_ref: str = "",
+    coding_history: str = "",
+    bext_version: int = 1,
+    file_uid: str = "",
 ) -> Path:
     block = channels * bits // 8
     frames = int(seconds * sample_rate)
@@ -36,17 +41,19 @@ def make_wav(
         fmt = struct.pack("<HHIIHH", 0xFFFE, channels, sample_rate, sample_rate * block, block, bits)
         fmt += struct.pack("<HHI", 22, bits, 3) + struct.pack("<H", 1) + bytes.fromhex("000000001000800000aa00389b71")
     body = _chunk(b"fmt ", fmt)
-    if time_reference is not None or description:
+    if time_reference is not None or description or umid or originator_ref or coding_history:
         tr = time_reference or 0
         bext = (
             description.encode().ljust(256, b"\x00")
             + b"TestRecorder".ljust(32, b"\x00")
-            + b"".ljust(32, b"\x00")
+            + originator_ref.encode().ljust(32, b"\x00")
             + b"2026-11-01"
             + b"10:00:00"
             + struct.pack("<II", tr & 0xFFFFFFFF, tr >> 32)
-            + struct.pack("<H", 1)
-            + b"\x00" * 254
+            + struct.pack("<H", bext_version)
+            + (umid or b"").ljust(64, b"\x00")
+            + b"\x00" * 190  # loudness (10) + reserved (180)
+            + coding_history.encode()
         )
         body += _chunk(b"bext", bext)
     if scene or take or tape or track_names:
@@ -55,7 +62,7 @@ def make_wav(
             for i, n in enumerate(track_names or [])
         )
         ixml = (
-            f"<?xml version='1.0'?><BWFXML><PROJECT>TestProj</PROJECT><SCENE>{scene}</SCENE>"
+            f"<?xml version='1.0'?><BWFXML><PROJECT>TestProj</PROJECT><FILE_UID>{file_uid}</FILE_UID><SCENE>{scene}</SCENE>"
             f"<TAKE>{take}</TAKE><TAPE>{tape}</TAPE><TRACK_LIST>{tracks}</TRACK_LIST></BWFXML>"
         )
         body += _chunk(b"iXML", ixml.encode())

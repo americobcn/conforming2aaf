@@ -160,3 +160,68 @@ def test_warns_when_polyphonic_stays_multichannel(tmp_path, poly, mode):
         assert "poly.wav" in w and "3 canales" in w and "mono" in w
     with prepare_media(tl, tmp_path / "r2.aaf", mode, split_mono=True) as res:
         assert res.warnings == []
+
+
+# ---- every mono file needs its own identity: Pro Tools merges files that share a UMID ----
+import re  # noqa: E402
+
+UMID = bytes.fromhex("060a2b340101010501010f1013000000") + b"RXSL7648115335N\x06" + bytes(32)
+REF = "AATON                 SL76480000"
+UID = "AAT19BS0008202510111154056480001"
+
+
+@pytest.fixture
+def poly_id(wav_factory):
+    return read_wav(wav_factory(
+        "id.wav", seconds=0.01, channels=3, bits=24, time_reference=36000 * SR, fill=True,
+        umid=UMID, originator_ref=REF, file_uid=UID, scene="12A", take="3", track_names=["L", "R", "Boom"],
+        coding_history="A=PCM,F=48000,W=24,M=multi,R=48000,T=3 Ch\r\n",
+    ))
+
+
+def _bext(path):
+    off, size = read_chunks(path)["bext"]
+    b = path.read_bytes()[off : off + size]
+    return {"ref": b[288:320], "umid": b[348:412], "tr": b[338:346], "hist": b[602:], "raw": b}
+
+
+def _file_uid(path):
+    off, size = read_chunks(path)["iXML"]
+    return re.search(rb"<FILE_UID>([^<]*)<", path.read_bytes()[off : off + size]).group(1)
+
+
+def test_split_files_get_distinct_identities(tmp_path, poly_id):
+    outs = []
+    for ch in (1, 2, 3):
+        dest = tmp_path / f"id_{ch}.wav"
+        split_wav(poly_id, ch, dest)
+        outs.append(dest)
+    fields = [_bext(p) for p in outs]
+    assert len({f["umid"] for f in fields}) == 3 and UMID[:64] not in {f["umid"] for f in fields}
+    assert len({f["ref"] for f in fields}) == 3
+    assert len({_file_uid(p) for p in outs}) == 3
+    assert [f["ref"].rstrip(b"\0")[-2:] for f in fields] == [b"01", b"02", b"03"]
+    assert [_file_uid(p)[-2:] for p in outs] == [b"01", b"02", b"03"]
+    for f in fields:  # the rest of the identity block and the timecode stay put
+        assert f["umid"][:16] == UMID[:16] and f["umid"][32:] == UMID[32:]
+        assert f["tr"] == struct.pack("<II", 36000 * SR, 0)
+        assert f["ref"][:30] == REF.encode()[:30]
+        assert b"M=mono" in f["hist"] and b"M=multi" not in f["hist"]
+
+
+def test_split_identity_is_deterministic(tmp_path, poly_id):
+    a, b = tmp_path / "a.wav", tmp_path / "b.wav"
+    split_wav(poly_id, 2, a)
+    split_wav(poly_id, 2, b)
+    assert _bext(a)["raw"] == _bext(b)["raw"] and _file_uid(a) == _file_uid(b)
+
+
+def test_split_leaves_zero_umid_and_version0_bext_alone(tmp_path, wav_factory):
+    plain = read_wav(wav_factory("p.wav", seconds=0.01, channels=2, time_reference=5, fill=True))
+    v0 = read_wav(wav_factory("v0.wav", seconds=0.01, channels=2, time_reference=5, fill=True,
+                              umid=UMID, bext_version=0))
+    for mf in (plain, v0):
+        dest = tmp_path / f"{mf.stem}_1.wav"
+        split_wav(mf, 1, dest)
+        assert _bext(dest)["umid"] == _bext(mf.path)["umid"]
+        assert _bext(dest)["tr"] == _bext(mf.path)["tr"]
