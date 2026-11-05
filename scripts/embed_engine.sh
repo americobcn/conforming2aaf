@@ -7,7 +7,7 @@ SRC="$ROOT/build/engine"
 DEST="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/engine"
 
 # Rebuild when missing or when the engine sources are newer than the build.
-if [ ! -x "$SRC/python/bin/python3" ] || [ -n "$(find "$ROOT/engine/conform2aaf" "$ROOT/engine/pyproject.toml" -newer "$SRC/lib" -print -quit 2>/dev/null)" ]; then
+if [ ! -x "$SRC/python/bin/python3" ] || [ -n "$(find "$ROOT/engine/conform2aaf" "$ROOT/engine/pyproject.toml" "$ROOT/tools" -newer "$SRC/lib" -print -quit 2>/dev/null)" ]; then
   "$ROOT/scripts/build_engine.sh"
 fi
 

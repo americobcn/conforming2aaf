@@ -9,6 +9,7 @@ iXML track list is reduced to the channel that was extracted.
 from __future__ import annotations
 
 import hashlib
+import re
 import shutil
 import struct
 import tempfile
@@ -19,6 +20,7 @@ from pathlib import Path
 from typing import Callable, Iterator
 
 from ..model import MediaFile, Timeline
+from .audio import ConvertStats, convert_pcm24
 from .riff import read_chunks, read_wav
 
 CHUNK_FRAMES = 1 << 18
@@ -37,6 +39,11 @@ class PrepareResult:
 def _embeddable_format(mf: MediaFile) -> bool:
     """pyaaf2 reads embedded essence with the stdlib wave module: PCM 16/24 bit, plain RIFF."""
     return mf.format_tag == 1 and mf.bits in (16, 24) and not mf.rf64
+
+
+def _is_float(mf: MediaFile) -> bool:
+    """32-bit IEEE float: Pro Tools crashes importing an AAF that links it, so it becomes PCM 24 bit."""
+    return mf.format_tag == 3 and mf.bits == 32
 
 
 def can_embed(mf: MediaFile) -> bool:
@@ -73,6 +80,17 @@ def _split_bext(payload: bytes, channel: int) -> bytes:
     return bytes(b)
 
 
+def _pcm24_ixml(raw: bytes) -> bytes:
+    return re.sub(rb"(<(?:AUDIO_)?BIT_DEPTH>)32(<)", rb"\g<1>24\2", raw)
+
+
+def _pcm24_bext(payload: bytes) -> bytes:
+    """The coding history says W=32 (bits per sample): the converted file holds 24."""
+    if len(payload) <= 602:
+        return payload
+    return payload[:602] + payload[602:].replace(b"W=32", b"W=24", 1)
+
+
 def _mono_ixml(raw: bytes, channel: int) -> bytes:
     """Keep only the TRACK of `channel` in an iXML track list, renumbered to 1."""
     try:
@@ -102,12 +120,25 @@ def _mono_ixml(raw: bytes, channel: int) -> bytes:
     return ET.tostring(root, encoding="utf-8", xml_declaration=True)
 
 
-def split_wav(src: MediaFile, channel: int, dest: Path) -> None:
-    """Write channel `channel` (1-based) of `src` as a mono WAV with all other chunks preserved."""
+def write_wav(src: MediaFile, dest: Path, channel: int | None, convert: bool = False) -> ConvertStats | None:
+    """Write `src` as a new WAV with every other chunk preserved.
+
+    channel: 1-based channel to extract as a mono file (own identity, see _split_bext), or None
+    to keep all channels. convert: 32-bit float -> PCM 24 bit through AudioToolbox (audio.py);
+    returns its statistics (None when no conversion ran).
+    """
     chunks = read_chunks(src.path)
-    w = src.block_align // src.channels
-    data_size = src.frames * w
-    fmt = struct.pack("<HHIIHH", src.format_tag, 1, src.sample_rate, src.sample_rate * w, w, src.bits)
+    out_channels = 1 if channel else src.channels
+    if convert:
+        w, tag, bits = 3, 1, 24
+    else:
+        if not channel:
+            raise ValueError("write_wav sin conversión necesita un canal")
+        w, tag, bits = src.block_align // src.channels, src.format_tag, src.bits
+    frame_bytes = w * out_channels
+    data_size = src.frames * frame_bytes
+    fmt = struct.pack("<HHIIHH", tag, out_channels, src.sample_rate, src.sample_rate * frame_bytes, frame_bytes, bits)
+    stats: ConvertStats | None = None
 
     with open(src.path, "rb") as fin:
         parts: list[tuple[bytes, bytes | None]] = []  # (chunk id, payload or None for data)
@@ -122,9 +153,15 @@ def split_wav(src: MediaFile, channel: int, dest: Path) -> None:
                 fin.seek(off)
                 payload = fin.read(size)
                 if cid == "iXML":
-                    payload = _mono_ixml(payload, channel)
+                    if channel:
+                        payload = _mono_ixml(payload, channel)
+                    if convert:
+                        payload = _pcm24_ixml(payload)
                 elif cid == "bext":
-                    payload = _split_bext(payload, channel)
+                    if channel:
+                        payload = _split_bext(payload, channel)
+                    if convert:
+                        payload = _pcm24_bext(payload)
                 parts.append((cid.encode("latin-1"), payload))
 
         def padded(n: int) -> int:
@@ -151,20 +188,31 @@ def split_wav(src: MediaFile, channel: int, dest: Path) -> None:
                         out.write(b"\x00")
                     continue
                 out.write(b"data" + struct.pack("<I", 0xFFFFFFFF if rf64 else data_size))
-                fin.seek(chunks["data"][0])
-                remaining = src.frames
-                first = (channel - 1) * w
-                while remaining:
-                    n = min(CHUNK_FRAMES, remaining)
-                    block = fin.read(n * src.block_align)
-                    mono = bytearray(n * w)
-                    for i in range(w):
-                        mono[i::w] = block[first + i :: src.block_align]
-                    out.write(mono)
-                    remaining -= n
+                if convert:
+                    stats = convert_pcm24(src.path, channel or 0, out)
+                    if stats.frames != src.frames:
+                        raise RuntimeError(f"{src.path.name}: audioconv devolvió {stats.frames} muestras de {src.frames}")
+                else:
+                    fin.seek(chunks["data"][0])
+                    remaining = src.frames
+                    first = (channel - 1) * w
+                    while remaining:
+                        n = min(CHUNK_FRAMES, remaining)
+                        block = fin.read(n * src.block_align)
+                        mono = bytearray(n * w)
+                        for i in range(w):
+                            mono[i::w] = block[first + i :: src.block_align]
+                        out.write(mono)
+                        remaining -= n
                 if data_size & 1:
                     out.write(b"\x00")
     tmp.replace(dest)
+    return stats
+
+
+def split_wav(src: MediaFile, channel: int, dest: Path) -> ConvertStats | None:
+    """Mono file with channel `channel` (1-based) of `src`; float sources are converted to PCM 24 bit."""
+    return write_wav(src, dest, channel, _is_float(src))
 
 
 @contextmanager
@@ -179,6 +227,8 @@ def prepare_media(
 
     link   : original files; polyphonic ones are split only if `split_mono`.
     copy   : used files are copied (or split) into '<out stem> Media' next to `out`.
+    32-bit float files are always rewritten as PCM 24 bit (copy, split, embed): Pro Tools
+    crashes importing an AAF that links them.
     embed  : mono files are staged in a temporary folder removed on exit
              (polyphonic files are always split). Files that cannot be
              embedded stay linked, with a warning.
@@ -193,6 +243,7 @@ def prepare_media(
     cache: dict[tuple[Path, int], tuple[MediaFile, int | None]] = {}
     warned: set[Path] = set()
     poly_warned: set[Path] = set()
+    float_warned: set[Path] = set()
 
     def say(msg: str) -> None:
         if progress:
@@ -223,7 +274,7 @@ def prepare_media(
         clips = [c for c in tl.clips() if c.match_status == "matched" and c.media is not None]
         for i, clip in enumerate(clips, 1):
             mf, ch = clip.media, clip.channel or 1
-            if mode == "embed" and not _embeddable_format(mf):
+            if mode == "embed" and not (_embeddable_format(mf) or _is_float(mf)):
                 if mf.path not in warned:
                     warned.add(mf.path)
                     res.warnings.append(
@@ -234,15 +285,31 @@ def prepare_media(
                 res.warnings.append(
                     f"{mf.path.name}: {mf.channels} canales. Pro Tools no admite ficheros multicanal en un AAF "
                     "y enlazaría siempre el canal 1; activa «Partir polifónicos a mono»")
-            if split and mf.channels > 1 and ch <= mf.channels:
-                key = (mf.path, ch)
+            floating = _is_float(mf)
+            split_this = split and mf.channels > 1 and ch <= mf.channels
+            rewrite = split_this or (floating and (split or mode != "link"))
+            if floating and not rewrite and mf.path not in float_warned:
+                float_warned.add(mf.path)
+                res.warnings.append(
+                    f"{mf.path.name}: coma flotante de 32 bits. Pro Tools se cierra al importar un AAF que enlaza "
+                    "ficheros float: usa «Copiar» o «Partir polifónicos a mono» para convertirlos a PCM de 24 bits")
+            if rewrite:
+                channel = ch if split_this else None
+                key = (mf.path, channel or 0)
                 if key not in cache:
-                    dest = alloc(f"{mf.stem}_{ch}.wav", key)
-                    say(f"Partiendo {mf.path.name} canal {ch} ({i}/{len(clips)})")
-                    split_wav(mf, ch, dest)
-                    cache[key] = (read_wav(dest), 1)
+                    dest = alloc(f"{mf.stem}_{ch}.wav" if split_this else mf.path.name, key)
+                    say(f"{'Convirtiendo' if floating else 'Partiendo'} {mf.path.name}"
+                        f"{f' canal {ch}' if split_this else ''} ({i}/{len(clips)})")
+                    stats = write_wav(mf, dest, channel, floating)
+                    cache[key] = (read_wav(dest), 1 if split_this else None)
                     finished(dest)
-                clip.media, clip.channel = cache[key]
+                    if stats is not None and stats.clipped:
+                        res.warnings.append(
+                            f"{mf.path.name}: {stats.clipped} muestras superan 0 dBFS (pico {stats.peak:.2f}) y se han "
+                            "recortado al convertir a PCM de 24 bits")
+                clip.media = cache[key][0]
+                if split_this:
+                    clip.channel = 1
             elif mode == "copy":
                 key = (mf.path, 0)
                 if key not in cache:

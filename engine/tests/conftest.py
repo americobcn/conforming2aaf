@@ -1,7 +1,10 @@
 """Test helpers: synthetic broadcast WAV files with metadata chunks."""
 from __future__ import annotations
 
+import os
 import struct
+import subprocess
+from array import array
 from pathlib import Path
 
 import pytest
@@ -34,9 +37,13 @@ def make_wav(
     bext_version: int = 1,
     file_uid: str = "",
     float_fmt: bool = False,
+    float_data: list[float] | None = None,  # interleaved float32 samples (implies float_fmt)
+    ixml_extra: str = "",
 ) -> Path:
+    if float_data is not None:
+        float_fmt, bits = True, 32
     block = channels * bits // 8
-    frames = int(seconds * sample_rate)
+    frames = len(float_data) // channels if float_data is not None else int(seconds * sample_rate)
     fmt = struct.pack("<HHIIHH", 3 if float_fmt else 1, channels, sample_rate, sample_rate * block, block, bits)
     if extensible:  # WAVE_FORMAT_EXTENSIBLE: cbSize 22, valid bits, channel mask, PCM sub-format GUID
         fmt = struct.pack("<HHIIHH", 0xFFFE, channels, sample_rate, sample_rate * block, block, bits)
@@ -64,13 +71,15 @@ def make_wav(
         )
         ixml = (
             f"<?xml version='1.0'?><BWFXML><PROJECT>TestProj</PROJECT><FILE_UID>{file_uid}</FILE_UID><SCENE>{scene}</SCENE>"
-            f"<TAKE>{take}</TAKE><TAPE>{tape}</TAPE><TRACK_LIST>{tracks}</TRACK_LIST></BWFXML>"
+            f"<TAKE>{take}</TAKE><TAPE>{tape}</TAPE><TRACK_LIST>{tracks}</TRACK_LIST>{ixml_extra}</BWFXML>"
         )
         body += _chunk(b"iXML", ixml.encode())
     if info:
         sub = b"".join(_chunk(k.encode(), v.encode() + b"\x00") for k, v in info.items())
         body += _chunk(b"LIST", b"INFO" + sub)
-    if fill:  # frame f, channel c -> bytes (c + 1, f % 251, 7, ...)
+    if float_data is not None:
+        data = array("f", float_data).tobytes()
+    elif fill:  # frame f, channel c -> bytes (c + 1, f % 251, 7, ...)
         w = bits // 8
         data = b"".join(
             bytes(((c + 1) % 256, f % 251) + (7,) * (w - 2)) for f in range(frames) for c in range(channels)
@@ -96,3 +105,19 @@ def wav_factory(tmp_path):
         return make_wav(p, **kw)
 
     return factory
+
+
+@pytest.fixture(scope="session")
+def audioconv_env(tmp_path_factory):
+    """Make the AudioToolbox converter available: the repo build, or compile it on the fly."""
+    from conform2aaf.media.audio import AudioToolMissing, audioconv_path
+
+    try:
+        audioconv_path()
+    except AudioToolMissing:
+        out = tmp_path_factory.mktemp("audioconv") / "audioconv"
+        src = Path(__file__).resolve().parents[2] / "tools" / "audioconv" / "main.swift"
+        done = subprocess.run(["xcrun", "swiftc", "-O", "-o", str(out), str(src)], capture_output=True)
+        if done.returncode != 0:
+            pytest.skip("audioconv no se puede compilar aquí")
+        os.environ["CONFORM2AAF_AUDIOCONV"] = str(out)

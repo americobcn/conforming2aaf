@@ -225,3 +225,102 @@ def test_split_leaves_zero_umid_and_version0_bext_alone(tmp_path, wav_factory):
         split_wav(mf, 1, dest)
         assert _bext(dest)["umid"] == _bext(mf.path)["umid"]
         assert _bext(dest)["tr"] == _bext(mf.path)["tr"]
+
+
+# ---- 32-bit float sources: Pro Tools crashes on them, so they are converted to PCM 24 bit ----
+def _float_samples(frames, channels):  # exactly representable in 24 bit: (c+1)*(1+f%3)/16
+    return [(c + 1) * (1 + f % 3) / 16 for f in range(frames) for c in range(channels)]
+
+
+def _expected24(frames, channel):  # channel is 1-based
+    return [channel * (1 + f % 3) * 2**19 for f in range(frames)]
+
+
+def _data_ints(path):
+    off, size = read_chunks(path)["data"]
+    raw = path.read_bytes()[off : off + size]
+    return [int.from_bytes(raw[i : i + 3], "little", signed=True) for i in range(0, len(raw), 3)]
+
+
+@pytest.fixture
+def poly_f(wav_factory):
+    return read_wav(wav_factory(
+        "fp.wav", channels=3, float_data=_float_samples(300, 3), time_reference=36000 * SR,
+        umid=UMID, originator_ref=REF, file_uid=UID, scene="12A", take="3", track_names=["L", "R", "Boom"],
+        ixml_extra="<SPEED><AUDIO_BIT_DEPTH>32</AUDIO_BIT_DEPTH></SPEED>",
+        coding_history="A=PCM,F=48000,W=32,M=multi,R=48000,T=3 Ch\r\n",
+    ))
+
+
+def test_split_float_converts_to_pcm24_and_updates_metadata(tmp_path, poly_f, audioconv_env):
+    assert poly_f.format_tag == 3 and poly_f.bits == 32
+    dest = tmp_path / "fp_2.wav"
+    stats = split_wav(poly_f, 2, dest)
+    mf = read_wav(dest)
+    assert (mf.format_tag, mf.bits, mf.channels, mf.block_align, mf.frames) == (1, 24, 1, 3, 300)
+    assert _data_ints(dest) == _expected24(300, 2)
+    assert stats.clipped == 0
+    off, size = read_chunks(dest)["iXML"]
+    assert b"<AUDIO_BIT_DEPTH>24<" in dest.read_bytes()[off : off + size]
+    assert b"W=24" in _bext(dest)["hist"] and b"W=32" not in _bext(dest)["hist"]
+    assert _bext(dest)["umid"][:16] == UMID[:16] and _bext(dest)["umid"] != UMID[:64]  # identity per channel kept
+    assert mf.scene == "12A" and mf.time_reference == poly_f.time_reference and mf.track_names == ["R"]
+
+
+def test_split_pcm24_is_untouched_by_conversion(tmp_path, poly_id):
+    stats = split_wav(poly_id, 1, tmp_path / "id_1.wav")
+    assert stats is None  # no conversion needed: pure Python path
+
+
+def test_copy_converts_a_mono_float_file(tmp_path, wav_factory, audioconv_env):
+    mono = read_wav(wav_factory("m.wav", float_data=_float_samples(100, 1), time_reference=SR))
+    tl = _timeline(_clip(mono, src=1, dur=F(1, 1000)))
+    with prepare_media(tl, tmp_path / "r.aaf", "copy", split_mono=False) as res:
+        c = tl.tracks[0].clips[0]
+        assert (c.media.format_tag, c.media.bits, c.media.channels) == (1, 24, 1)
+        assert _data_ints(c.media.path) == _expected24(100, 1) and c.channel == 1
+        assert res.files == 1 and res.warnings == []
+        assert c.media.time_reference == SR
+
+
+def test_link_with_split_still_rewrites_a_mono_float_file(tmp_path, wav_factory, audioconv_env):
+    mono = read_wav(wav_factory("m.wav", float_data=_float_samples(100, 1), time_reference=SR))
+    tl = _timeline(_clip(mono, src=1, dur=F(1, 1000)))
+    with prepare_media(tl, tmp_path / "r.aaf", "link", split_mono=True) as res:
+        assert res.media_dir is not None and tl.tracks[0].clips[0].media.bits == 24
+
+
+def test_link_without_split_warns_about_float(tmp_path, wav_factory):
+    mono = read_wav(wav_factory("m.wav", float_data=_float_samples(100, 1), time_reference=SR))
+    tl = _timeline(_clip(mono, src=1, dur=F(1, 1000)))
+    with prepare_media(tl, tmp_path / "r.aaf", "link", split_mono=False) as res:
+        assert tl.tracks[0].clips[0].media is mono
+        (w,) = res.warnings
+        assert "coma flotante" in w and "Pro Tools" in w
+
+
+def test_clipped_samples_are_reported(tmp_path, wav_factory, audioconv_env):
+    hot = read_wav(wav_factory("hot.wav", float_data=[0.1, 1.5, -2.0, 0.2], time_reference=0))
+    tl = _timeline(_clip(hot, src=0, dur=F(1, 12000)))
+    with prepare_media(tl, tmp_path / "r.aaf", "copy", split_mono=False) as res:
+        (w,) = res.warnings
+        assert "2 muestras" in w and "recortad" in w and "hot.wav" in w
+
+
+def test_embed_converts_float_then_embeds(tmp_path, wav_factory, audioconv_env):
+    mono = read_wav(wav_factory("e.wav", float_data=_float_samples(480, 1), time_reference=0))
+    tl = _timeline(_clip(mono, src=0, dur=F(1, 100)))
+    out = tmp_path / "e.aaf"
+    with prepare_media(tl, out, "embed", split_mono=True) as res:
+        assert res.warnings == []
+        write_aaf(tl, out, SR, embed=True)
+    with aaf2.open(str(out), "r") as f:
+        assert len(list(f.content.essencedata)) == 1
+
+
+def test_copy_of_polyphonic_float_without_split_keeps_all_channels(tmp_path, poly_f, audioconv_env):
+    tl = _timeline(_clip(poly_f, channel=1, src=36000, dur=F(1, 1000)))
+    with prepare_media(tl, tmp_path / "r.aaf", "copy", split_mono=False) as res:
+        mf = tl.tracks[0].clips[0].media
+        assert (mf.format_tag, mf.bits, mf.channels) == (1, 24, 3)
+        assert len(_data_ints(mf.path)) == 300 * 3

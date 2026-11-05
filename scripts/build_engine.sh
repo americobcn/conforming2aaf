@@ -2,6 +2,7 @@
 # Build a self-contained Python engine in build/engine:
 #   build/engine/python  relocatable CPython 3.12 (python-build-standalone, via uv)
 #   build/engine/lib     conform2aaf + pyaaf2
+#   build/engine/bin     audioconv (AudioToolbox sample conversion, tools/audioconv)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -26,6 +27,8 @@ rsync -a \
   "$PY_HOME/" "$OUT/python/"
 
 uv pip install --quiet --python "$OUT/python/bin/python3" --target "$OUT/lib" "$ROOT/engine"
+mkdir -p "$OUT/bin"
+xcrun swiftc -O -target arm64-apple-macos15.0 -o "$OUT/bin/audioconv" "$ROOT/tools/audioconv/main.swift"
 PYTHONPATH="$OUT/lib" "$OUT/python/bin/python3" -c "import aaf2, conform2aaf.cli; print('engine ok')"
 "$OUT/python/bin/python3" -m compileall -q "$OUT/lib" >/dev/null || true
 du -sh "$OUT"
