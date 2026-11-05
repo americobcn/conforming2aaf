@@ -112,3 +112,20 @@ def test_locator_url_names_the_volume_first():
     assert locator_url("/Volumes/MediaSSD/AAF EXP/Media/a_1.wav") == "file:///MediaSSD/AAF%20EXP/Media/a_1.wav"
     assert locator_url("/Users/me/Audio/a.wav", boot_volume="MacHD") == "file:///MacHD/Users/me/Audio/a.wav"
     assert locator_url("/Volumes/Data/é.wav") == "file:///Data/%C3%A9.wav"
+
+
+def test_summary_of_float_wav_carries_cbsize(tmp_path, wav_factory):
+    """Non-PCM formats use WAVEFORMATEX: the fmt chunk is 18 bytes (cbSize = 0). A 16-byte
+    float Summary makes a reader that expects cbSize read past the buffer (Pro Tools crashed)."""
+    mf = read_wav(wav_factory("f32.wav", seconds=1, bits=32, float_fmt=True, time_reference=0))
+    assert mf.format_tag == 3 and mf.bits == 32
+    clips = [_matched(mf, name="F", record_in=F(0), duration=F(1), source_in=F(0), channel=1)]
+    tl = Timeline("T", FrameRate.parse("25"), tracks=[Track("A1", clips)])
+    write_aaf(tl, tmp_path / "f.aaf", SR)
+    with aaf2.open(str(tmp_path / "f.aaf"), "r") as f:
+        (m,) = [m for m in f.content.sourcemobs() if type(m.descriptor).__name__ == "WAVEDescriptor"]
+        summary = bytes(m.descriptor["Summary"].value)
+    assert len(summary) == 12 + 8 + 18
+    assert struct.unpack("<I", summary[4:8])[0] == 4 + 8 + 18 and struct.unpack("<I", summary[16:20])[0] == 18
+    tag, channels, rate, avg, align, bits, cb = struct.unpack("<HHIIHHH", summary[20:38])
+    assert (tag, channels, rate, avg, align, bits, cb) == (3, 1, SR, SR * 4, 4, 32, 0)

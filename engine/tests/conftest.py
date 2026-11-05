@@ -33,10 +33,11 @@ def make_wav(
     coding_history: str = "",
     bext_version: int = 1,
     file_uid: str = "",
+    float_fmt: bool = False,
 ) -> Path:
     block = channels * bits // 8
     frames = int(seconds * sample_rate)
-    fmt = struct.pack("<HHIIHH", 1, channels, sample_rate, sample_rate * block, block, bits)
+    fmt = struct.pack("<HHIIHH", 3 if float_fmt else 1, channels, sample_rate, sample_rate * block, block, bits)
     if extensible:  # WAVE_FORMAT_EXTENSIBLE: cbSize 22, valid bits, channel mask, PCM sub-format GUID
         fmt = struct.pack("<HHIIHH", 0xFFFE, channels, sample_rate, sample_rate * block, block, bits)
         fmt += struct.pack("<HHI", 22, bits, 3) + struct.pack("<H", 1) + bytes.fromhex("000000001000800000aa00389b71")

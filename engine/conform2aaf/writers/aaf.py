@@ -68,13 +68,15 @@ def _locator(f, path: Path | str):
 
 
 def _wave_summary(mf: MediaFile) -> bytes:
-    """RIFF/WAVE header + plain 16-byte fmt chunk, as a WAVEDescriptor Summary.
+    """RIFF/WAVE header + plain fmt chunk (16 bytes PCM, 18 bytes float), as a WAVEDescriptor Summary.
 
     WAVE_FORMAT_EXTENSIBLE is flattened to its PCM/float sub-format: Pro Tools
     fails with "Error reading AAF WAVE Data" on an extensible Summary.
     """
     fmt = struct.pack("<HHIIHH", mf.format_tag, mf.channels, mf.sample_rate,
                       mf.sample_rate * mf.block_align, mf.block_align, mf.bits)
+    if mf.format_tag != 1:  # WAVEFORMATEX for non-PCM (IEEE float): cbSize = 0
+        fmt += struct.pack("<H", 0)
     return b"RIFF" + struct.pack("<I", 4 + 8 + len(fmt)) + b"WAVE" + b"fmt " + struct.pack("<I", len(fmt)) + fmt
 
 
