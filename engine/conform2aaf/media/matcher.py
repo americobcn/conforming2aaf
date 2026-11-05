@@ -6,10 +6,13 @@ Order of evidence:
    the candidates are the files whose bext timecode range overlaps the clip.
 2. Timecode: partial overlap is accepted (the sound may start late or stop early);
    the missing frames are reported. No overlap -> not found.
-3. Tie-breakers, in order: tape (iXML/bext TAPE vs the clip's tape or reel), then
+3. Tie-breakers, in order: recording date (the clip name carries it, e.g. _261009_; the WAV
+   has the bext OriginationDate), tape (iXML/bext TAPE vs the clip's tape or reel), then
    scene+take (both normalised). Evidence only counts when present on both sides.
-4. If a single candidate remains but scene/take on both sides contradict, the clip is
-   `ambiguous`. A camera reel that differs from the sound tape is never a conflict.
+4. Candidates recorded on another day than the clip name says are discarded (a clip left
+   without candidates is `missing`, with the dates in the note). If a file matched by name
+   or a single remaining candidate has contradicting scene/take, the clip is `ambiguous`.
+   A camera reel that differs from the sound tape is never a conflict.
 5. A clip with no TC is matched by scene/take (or tape) alone, but only with a positive
    agreement on a single file.
 """
@@ -21,6 +24,9 @@ from fractions import Fraction
 from pathlib import PurePath
 from typing import Callable
 
+import datetime as dt
+
+from ..clipdate import date_from_name
 from ..model import Clip, MediaFile, Timeline
 from ..timecode import FrameRate
 
@@ -48,6 +54,19 @@ def _overlap(mf: MediaFile, clip: Clip) -> Fraction | None:
     a = max(clip.source_in, mf.start)
     b = min(clip.source_in + clip.duration, mf.start + mf.duration)
     return max(b - a, Fraction(0))
+
+
+def clip_date(clip: Clip) -> dt.date | None:
+    """Shooting date from the clip name, its file path or its reel (RED/ARRI names carry _YYMMDD_)."""
+    for text in (clip.name, clip.file_hint, clip.reel):
+        if text and (d := date_from_name(text)):
+            return d
+    return None
+
+
+def _date_agrees(mf: MediaFile, clip: Clip) -> bool | None:
+    d = clip_date(clip)
+    return None if d is None or mf.date is None else d == mf.date
 
 
 def _tape_agrees(mf: MediaFile, clip: Clip) -> bool | None:
@@ -119,6 +138,23 @@ class Matcher:
         if not pool:
             return self._set(clip, "missing", [], "No se encontró fichero")
 
+        day = clip_date(clip)
+        if day is not None:
+            agree = [f for f in pool if _date_agrees(f, clip) is True]
+            unknown = [f for f in pool if _date_agrees(f, clip) is None]
+            other = [f for f in pool if _date_agrees(f, clip) is False]
+            if agree:
+                if len(agree) < len(pool):
+                    evidence.append("fecha")
+                pool = agree
+            elif unknown:
+                pool = unknown  # the files with another date are discarded
+            elif mode != "name":
+                # every candidate was recorded on another day: discard them all. Neighbouring days
+                # overlap in free-run timecode, so a one-day difference is a coincidence, not a clock error.
+                dates = ", ".join(sorted({f.date.isoformat() for f in other}))
+                return self._set(clip, "missing", [],
+                                 f"Solo hay ficheros con este TC de otra fecha (clip {day.isoformat()}; ficheros {dates})")
         if len(pool) > 1:
             before = len(pool)
             pool = _narrow(pool, lambda f: _tape_agrees(f, clip))
@@ -134,11 +170,21 @@ class Matcher:
             if len(full) == 1:
                 pool = full
 
+        if len(pool) > 1 and all(_date_agrees(f, clip) is False for f in pool):
+            dates = ", ".join(sorted({f.date.isoformat() for f in pool}))
+            return self._set(clip, "ambiguous", pool,
+                             f"{len(pool)} ficheros cubren este TC pero ninguno coincide en fecha "
+                             f"(clip {clip_date(clip).isoformat()}, ficheros {dates})")
         if len(pool) > 1:
             what = {"name": "con el mismo nombre", "tc": "cubren este TC", "meta": "con la misma escena/toma"}[mode]
             return self._set(clip, "ambiguous", pool, f"{len(pool)} ficheros {what}")
 
         f = pool[0]
+        if _date_agrees(f, clip) is False:
+            lead = "El nombre coincide pero" if mode == "name" else "TC cuadra pero"
+            return self._set(clip, "ambiguous", [f],
+                             f"{lead} la fecha difiere (clip {clip_date(clip).isoformat()}, "
+                             f"fichero {f.date.isoformat()})")
         if _scene_take_agrees(f, clip) is False:
             lead = "El nombre coincide pero" if mode == "name" else "TC cuadra pero"
             note = (f"{lead} escena/toma difieren (clip {clip.scene.strip()}/{clip.take.strip()}, "

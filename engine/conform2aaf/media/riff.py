@@ -1,6 +1,7 @@
 """Read-only RIFF/RF64 WAV metadata parser (fmt, bext, iXML, LIST/INFO, axml, XMP)."""
 from __future__ import annotations
 
+import datetime as dt
 import re
 import struct
 import xml.etree.ElementTree as ET
@@ -61,6 +62,16 @@ def parse_bext_description(text: str) -> dict:
     return out
 
 
+def _parse_date(raw: bytes) -> dt.date | None:
+    m = re.fullmatch(r"(\d{4})[-/](\d{2})[-/](\d{2})", _text(raw))
+    if not m:
+        return None
+    try:
+        return dt.date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    except ValueError:
+        return None
+
+
 def parse_ixml(xml_text: str) -> dict:
     out: dict = {"track_names": []}
     try:
@@ -100,6 +111,7 @@ def read_wav(path: Path) -> MediaFile:
             if len(b) >= 346:
                 mf.description = _text(b[0:256])
                 mf.originator = _text(b[256:288])
+                mf.date = _parse_date(b[320:330])
                 lo, hi = struct.unpack("<II", b[338:346])
                 mf.time_reference = (hi << 32) | lo
         if "iXML" in chunks:

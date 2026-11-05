@@ -193,3 +193,75 @@ def test_without_tc_scene_take_matches(tmp_path, wav_factory):
     c2 = Clip(name="CAM", record_in=F(0), duration=F(1), scene="7")
     Matcher(files).match_clip(c2, R25)
     assert c2.match_status == "ambiguous" and len(c2.candidates) == 2
+
+
+# ---- the clip name carries the shooting date (A001C012_261009_RNU8): it separates days with the same TC ----
+def dclip(name, source_in, dur=F(2)):
+    return Clip(name=name, record_in=F(0), duration=dur, source_in=source_in)
+
+
+def test_date_in_the_clip_name_separates_two_days_with_the_same_tc(tmp_path, wav_factory):
+    wav_factory("d1/1-007.wav", seconds=10, time_reference=H10 * SR, origination_date="2026-10-09")
+    wav_factory("d3/3-003.wav", seconds=10, time_reference=H10 * SR, origination_date="2026-10-11")
+    files, _ = scan([tmp_path])
+    c = dclip("A001C012_261009_RNU8.mov", F(H10 + 1))
+    Matcher(files).match_clip(c, R25)
+    assert c.match_status == "matched" and c.media.stem == "1-007" and c.match_note == "Enlazado por TC y fecha"
+    c2 = dclip("A006C009_261011_RNU8.mov - Merged", F(H10 + 1))
+    Matcher(files).match_clip(c2, R25)
+    assert c2.match_status == "matched" and c2.media.stem == "3-003"
+
+
+def test_same_day_candidates_stay_ambiguous(tmp_path, wav_factory):
+    wav_factory("a.wav", seconds=10, time_reference=H10 * SR, origination_date="2026-10-09")
+    wav_factory("b.wav", seconds=10, time_reference=H10 * SR, origination_date="2026-10-09")
+    files, _ = scan([tmp_path])
+    c = dclip("A001C012_261009_RNU8.mov", F(H10 + 1))
+    Matcher(files).match_clip(c, R25)
+    assert c.match_status == "ambiguous" and len(c.candidates) == 2
+
+
+def test_candidates_from_other_days_are_discarded(tmp_path, wav_factory):
+    wav_factory("a.wav", seconds=10, time_reference=H10 * SR, origination_date="2026-10-11")
+    wav_factory("b.wav", seconds=10, time_reference=H10 * SR, origination_date="2026-10-12")
+    files, _ = scan([tmp_path])
+    c = dclip("A001C012_261009_RNU8.mov", F(H10 + 1))
+    Matcher(files).match_clip(c, R25)
+    assert c.match_status == "missing" and c.media is None and c.candidates == []
+    assert "otra fecha" in c.match_note and "2026-10-09" in c.match_note and "2026-10-11" in c.match_note
+
+
+def test_a_single_tc_candidate_from_another_day_is_discarded_not_linked(tmp_path, wav_factory):
+    wav_factory("only.wav", seconds=10, time_reference=H10 * SR, origination_date="2026-10-15")
+    files, _ = scan([tmp_path])
+    c = dclip("A003C026_261009_RNU8.mov", F(H10 + 1))
+    Matcher(files).match_clip(c, R25)
+    assert c.match_status == "missing" and "otra fecha" in c.match_note
+
+
+def test_one_day_off_is_discarded_too(tmp_path, wav_factory):
+    wav_factory("only.wav", seconds=10, time_reference=H10 * SR, origination_date="2026-10-10")
+    files, _ = scan([tmp_path])
+    c = dclip("A001C012_261009_RNU8.mov", F(H10 + 1))
+    Matcher(files).match_clip(c, R25)
+    assert c.match_status == "missing" and c.media is None and c.candidates == []
+    assert "otra fecha" in c.match_note and "2026-10-09" in c.match_note and "2026-10-10" in c.match_note
+
+
+def test_same_name_on_another_day_is_ambiguous_not_discarded(tmp_path, wav_factory):
+    wav_factory("A001C012_261009_RNU8.wav", seconds=10, time_reference=H10 * SR, origination_date="2026-10-15")
+    files, _ = scan([tmp_path])
+    c = dclip("A001C012_261009_RNU8", F(H10 + 1))  # same stem as the file: matched by name
+    Matcher(files).match_clip(c, R25)
+    assert c.match_status == "ambiguous" and "fecha difiere" in c.match_note  # the name equals: the user decides
+
+
+def test_missing_date_on_either_side_changes_nothing(tmp_path, wav_factory):
+    wav_factory("nodate.wav", seconds=10, time_reference=H10 * SR, origination_date="")
+    files, _ = scan([tmp_path])
+    c = dclip("A001C012_261009_RNU8.mov", F(H10 + 1))
+    Matcher(files).match_clip(c, R25)
+    assert c.match_status == "matched" and c.match_note == "Enlazado por TC"
+    d = dclip("CAM_WITHOUT_DATE", F(H10 + 1))
+    Matcher(files).match_clip(d, R25)
+    assert d.match_status == "matched"

@@ -69,3 +69,11 @@ def test_bext_description_fills_missing_scene_take_tape(wav_factory):
 def test_ixml_wins_over_bext_description(wav_factory):
     mf = read_wav(wav_factory("c.wav", seconds=0.1, time_reference=0, description=REAL_BEXT, scene="7", take="2"))
     assert (mf.scene, mf.take, mf.tape) == ("7", "2", "1113")  # tape missing in iXML -> from bext
+
+
+def test_reads_origination_date(wav_factory):
+    from datetime import date
+
+    assert read_wav(wav_factory("d.wav", seconds=0.01, time_reference=0, origination_date="2026-10-09")).date == date(2026, 10, 9)
+    assert read_wav(wav_factory("e.wav", seconds=0.01, time_reference=0, origination_date="garbage")).date is None
+    assert read_wav(wav_factory("f.wav", seconds=0.01)).date is None  # no bext at all

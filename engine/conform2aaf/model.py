@@ -1,6 +1,7 @@
 """Format-neutral timeline model. All times are exact rational seconds."""
 from __future__ import annotations
 
+import datetime as dt
 from dataclasses import dataclass, field
 from fractions import Fraction
 from pathlib import Path
@@ -28,6 +29,7 @@ class MediaFile:
     format_tag: int = 1  # 1 = PCM, 3 = IEEE float
     block_align: int = 0
     rf64: bool = False
+    date: dt.date | None = None  # recording date (bext OriginationDate)
     applied_gain_db: float = 0.0  # level lowered when converting float to 24 bit so it does not clip
 
     @property
