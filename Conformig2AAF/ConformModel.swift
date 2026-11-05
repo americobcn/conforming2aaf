@@ -69,6 +69,23 @@ final class ConformModel {
         lastOutput = nil
     }
 
+    /// Something to clear: a list, folders, an analysis or an error.
+    var hasWork: Bool { inputURL != nil || !mediaFolders.isEmpty || report != nil || errorMessage != nil }
+
+    /// Start a new import: forget the list, the sound folders, the analysis, the manual file
+    /// choices and the last result. Export options (media mode, sample rate...) are kept.
+    func reset() {
+        inputURL = nil
+        mediaFolders = []
+        startTC = ""
+        choices = [:]
+        report = nil
+        warnings = []
+        status = ""
+        errorMessage = nil
+        lastOutput = nil
+    }
+
     func addMediaFolders(_ urls: [URL]) {
         for url in urls where !mediaFolders.contains(url) {
             mediaFolders.append(url)

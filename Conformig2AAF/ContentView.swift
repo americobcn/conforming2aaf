@@ -29,6 +29,14 @@ struct ContentView: View {
                 .frame(minWidth: 600, maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(minWidth: 980, minHeight: 620)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button("Nueva importación", systemImage: "arrow.counterclockwise") { model.reset() }
+                    .keyboardShortcut("n", modifiers: [.command, .shift])
+                    .help("Vacía la lista, las carpetas y el análisis para empezar de nuevo (⇧⌘N)")
+                    .disabled(!model.hasWork || model.isRunning)
+            }
+        }
         .task(id: model.inspectKey) {
             if model.canInspect { await model.inspect() }
         }
