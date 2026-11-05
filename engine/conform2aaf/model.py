@@ -30,6 +30,7 @@ class MediaFile:
     block_align: int = 0
     rf64: bool = False
     date: dt.date | None = None  # recording date (bext OriginationDate)
+    time: dt.time | None = None  # recording start time (bext OriginationTime)
     applied_gain_db: float = 0.0  # level lowered when converting float to 24 bit so it does not clip
 
     @property

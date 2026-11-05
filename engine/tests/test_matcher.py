@@ -265,3 +265,39 @@ def test_missing_date_on_either_side_changes_nothing(tmp_path, wav_factory):
     d = dclip("CAM_WITHOUT_DATE", F(H10 + 1))
     Matcher(files).match_clip(d, R25)
     assert d.match_status == "matched"
+
+
+# ---- the clip name also carries the start time (A_0002C012_251111_115104_h1D2K): it picks among same-day files ----
+def test_time_in_the_clip_name_picks_the_file_that_was_recording(tmp_path, wav_factory):
+    wav_factory("morning.wav", seconds=600, time_reference=H10 * SR, origination_date="2025-11-11", origination_time="09:00:00")
+    wav_factory("noon.wav", seconds=600, time_reference=H10 * SR, origination_date="2025-11-11", origination_time="11:50:00")
+    files, _ = scan([tmp_path])
+    c = dclip("A_0002C012_251111_115104_h1D2K.mov - Merged", F(H10 + 5))
+    Matcher(files).match_clip(c, R25)
+    assert c.match_status == "matched" and c.media.stem == "noon" and c.match_note == "Enlazado por TC y hora"
+
+
+def test_time_tolerance_is_one_minute(tmp_path, wav_factory):
+    wav_factory("a.wav", seconds=60, time_reference=H10 * SR, origination_date="2025-11-11", origination_time="11:51:50")
+    wav_factory("b.wav", seconds=60, time_reference=H10 * SR, origination_date="2025-11-11", origination_time="14:00:00")
+    files, _ = scan([tmp_path])
+    c = dclip("A_0002C012_251111_115104_h1D2K.mov", F(H10 + 5))  # starts 46 s before a.wav began recording
+    Matcher(files).match_clip(c, R25)
+    assert c.match_status == "matched" and c.media.stem == "a"
+
+
+def test_when_no_candidate_was_recording_the_time_does_not_decide(tmp_path, wav_factory):
+    wav_factory("a.wav", seconds=60, time_reference=H10 * SR, origination_date="2025-11-11", origination_time="08:00:00")
+    wav_factory("b.wav", seconds=60, time_reference=H10 * SR, origination_date="2025-11-11", origination_time="14:00:00")
+    files, _ = scan([tmp_path])
+    c = dclip("A_0002C012_251111_115104_h1D2K.mov", F(H10 + 5))
+    Matcher(files).match_clip(c, R25)
+    assert c.match_status == "ambiguous" and len(c.candidates) == 2  # time is only a tie-breaker
+
+
+def test_time_does_not_override_the_date(tmp_path, wav_factory):
+    wav_factory("other_day.wav", seconds=600, time_reference=H10 * SR, origination_date="2025-11-12", origination_time="11:50:00")
+    files, _ = scan([tmp_path])
+    c = dclip("A_0002C012_251111_115104_h1D2K.mov", F(H10 + 5))
+    Matcher(files).match_clip(c, R25)
+    assert c.match_status == "missing" and "otra fecha" in c.match_note

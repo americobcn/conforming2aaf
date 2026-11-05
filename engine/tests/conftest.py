@@ -37,6 +37,7 @@ def make_wav(
     bext_version: int = 1,
     file_uid: str = "",
     origination_date: str = "2026-11-01",
+    origination_time: str = "10:00:00",
     float_fmt: bool = False,
     float_data: list[float] | None = None,  # interleaved float32 samples (implies float_fmt)
     ixml_extra: str = "",
@@ -57,7 +58,7 @@ def make_wav(
             + b"TestRecorder".ljust(32, b"\x00")
             + originator_ref.encode().ljust(32, b"\x00")
             + origination_date.encode().ljust(10, b"\x00")
-            + b"10:00:00"
+            + origination_time.encode().ljust(8, b"\x00")
             + struct.pack("<II", tr & 0xFFFFFFFF, tr >> 32)
             + struct.pack("<H", bext_version)
             + (umid or b"").ljust(64, b"\x00")

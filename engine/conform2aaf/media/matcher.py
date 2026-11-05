@@ -6,9 +6,11 @@ Order of evidence:
    the candidates are the files whose bext timecode range overlaps the clip.
 2. Timecode: partial overlap is accepted (the sound may start late or stop early);
    the missing frames are reported. No overlap -> not found.
-3. Tie-breakers, in order: recording date (the clip name carries it, e.g. _261009_; the WAV
-   has the bext OriginationDate), tape (iXML/bext TAPE vs the clip's tape or reel), then
-   scene+take (both normalised). Evidence only counts when present on both sides.
+3. Recording date (the clip name carries it, e.g. _261009_; the WAV has the bext
+   OriginationDate) discards the files from another day. Then, as tie-breakers in order: start
+   time (the name may carry it, e.g. _115104_; was the recorder rolling then, +-1 min), tape
+   (iXML/bext TAPE vs the clip's tape or reel), scene+take (both normalised). Evidence only
+   counts when present on both sides.
 4. Candidates recorded on another day than the clip name says are discarded (a clip left
    without candidates is `missing`, with the dates in the note). If a file matched by name
    or a single remaining candidate has contradicting scene/take, the clip is `ambiguous`.
@@ -26,7 +28,7 @@ from typing import Callable
 
 import datetime as dt
 
-from ..clipdate import date_from_name
+from ..clipdate import date_from_name, time_from_name
 from ..model import Clip, MediaFile, Timeline
 from ..timecode import FrameRate
 
@@ -56,12 +58,30 @@ def _overlap(mf: MediaFile, clip: Clip) -> Fraction | None:
     return max(b - a, Fraction(0))
 
 
-def clip_date(clip: Clip) -> dt.date | None:
-    """Shooting date from the clip name, its file path or its reel (RED/ARRI names carry _YYMMDD_)."""
+TIME_TOLERANCE = 60  # seconds: camera and recorder clocks are never exactly together
+
+
+def _stamp(clip: Clip) -> tuple[dt.date | None, dt.time | None]:
+    """Shooting date and start time from the clip name, its file path or its reel."""
     for text in (clip.name, clip.file_hint, clip.reel):
         if text and (d := date_from_name(text)):
-            return d
-    return None
+            return d, time_from_name(text)
+    return None, None
+
+
+def clip_date(clip: Clip) -> dt.date | None:
+    """Shooting date (RED/ARRI names carry _YYMMDD_)."""
+    return _stamp(clip)[0]
+
+
+def _time_agrees(mf: MediaFile, clip: Clip) -> bool | None:
+    """Was the recorder rolling when the camera clip started? (same day, +-TIME_TOLERANCE)"""
+    day, at = _stamp(clip)
+    if at is None or mf.time is None or (day is not None and mf.date is not None and day != mf.date):
+        return None
+    start = mf.time.hour * 3600 + mf.time.minute * 60 + mf.time.second
+    t = at.hour * 3600 + at.minute * 60 + at.second
+    return start - TIME_TOLERANCE <= t <= start + float(mf.duration) + TIME_TOLERANCE
 
 
 def _date_agrees(mf: MediaFile, clip: Clip) -> bool | None:
@@ -155,6 +175,11 @@ class Matcher:
                 dates = ", ".join(sorted({f.date.isoformat() for f in other}))
                 return self._set(clip, "missing", [],
                                  f"Solo hay ficheros con este TC de otra fecha (clip {day.isoformat()}; ficheros {dates})")
+        if len(pool) > 1:
+            before = len(pool)
+            pool = _narrow(pool, lambda f: _time_agrees(f, clip))
+            if len(pool) < before:
+                evidence.append("hora")
         if len(pool) > 1:
             before = len(pool)
             pool = _narrow(pool, lambda f: _tape_agrees(f, clip))

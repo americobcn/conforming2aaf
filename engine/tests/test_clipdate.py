@@ -1,8 +1,8 @@
-from datetime import date
+from datetime import date, time
 
 import pytest
 
-from conform2aaf.clipdate import date_from_name
+from conform2aaf.clipdate import date_from_name, time_from_name
 
 
 @pytest.mark.parametrize(
@@ -33,3 +33,32 @@ def test_date_from_name(name, expected):
 )
 def test_no_date(name):
     assert date_from_name(name) is None
+
+
+@pytest.mark.parametrize(
+    "name,day,at",
+    [
+        ("A_0002C012_251111_115104_h1D2K.mov - Merged", date(2025, 11, 11), time(11, 51, 4)),
+        ("A_0002C012_251111_115104_h1D2K.mov", date(2025, 11, 11), time(11, 51, 4)),
+        ("20251111_115104_cam", date(2025, 11, 11), time(11, 51, 4)),
+        # the time token looks like a date (23-11-02) but follows the real date: it is the time
+        ("A001C001_251111_231102_x.mov", date(2025, 11, 11), time(23, 11, 2)),
+    ],
+)
+def test_date_and_time_from_name(name, day, at):
+    assert date_from_name(name) == day
+    assert time_from_name(name) == at
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "A001C012_261009_RNU8.mov",  # date only
+        "A001C012_261009_996104_x",  # 99 is not an hour
+        "A001C012_261009_115960_x",  # 60 seconds
+        "A001C012",
+        "",
+    ],
+)
+def test_no_time(name):
+    assert time_from_name(name) is None

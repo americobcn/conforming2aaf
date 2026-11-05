@@ -72,6 +72,16 @@ def _parse_date(raw: bytes) -> dt.date | None:
         return None
 
 
+def _parse_time(raw: bytes) -> dt.time | None:
+    m = re.fullmatch(r"(\d{2}):(\d{2}):(\d{2})", _text(raw))
+    if not m:
+        return None
+    try:
+        return dt.time(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    except ValueError:
+        return None
+
+
 def parse_ixml(xml_text: str) -> dict:
     out: dict = {"track_names": []}
     try:
@@ -112,6 +122,7 @@ def read_wav(path: Path) -> MediaFile:
                 mf.description = _text(b[0:256])
                 mf.originator = _text(b[256:288])
                 mf.date = _parse_date(b[320:330])
+                mf.time = _parse_time(b[330:338])
                 lo, hi = struct.unpack("<II", b[338:346])
                 mf.time_reference = (hi << 32) | lo
         if "iXML" in chunks:

@@ -77,3 +77,10 @@ def test_reads_origination_date(wav_factory):
     assert read_wav(wav_factory("d.wav", seconds=0.01, time_reference=0, origination_date="2026-10-09")).date == date(2026, 10, 9)
     assert read_wav(wav_factory("e.wav", seconds=0.01, time_reference=0, origination_date="garbage")).date is None
     assert read_wav(wav_factory("f.wav", seconds=0.01)).date is None  # no bext at all
+
+
+def test_reads_origination_time(wav_factory):
+    from datetime import time
+
+    assert read_wav(wav_factory("t.wav", seconds=0.01, time_reference=0, origination_time="11:50:20")).time == time(11, 50, 20)
+    assert read_wav(wav_factory("u.wav", seconds=0.01, time_reference=0, origination_time="25:00:00")).time is None
