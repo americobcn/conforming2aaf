@@ -166,6 +166,10 @@ def test_convert_float_lowers_hot_channels_unless_peak_control_is_off(tmp_path, 
     assert any("nivel reducido" in e["message"] for e in events if e["type"] == "warning")
     with aaf2.open(str(tmp_path / "a" / "h.aaf"), "r") as f:
         (mm,) = list(f.content.mastermobs())
-        assert mm.comments["GainReduction"].endswith("dB") and float(mm.comments["GainReduction"][:-3]) < -12
+        assert mm.comments["GainReduction"] == "-6.00 dB"  # limited: 12 dB would be needed
+    code, events = run(*base, "--out", tmp_path / "c" / "h.aaf", "--max-reduction-db", "off")
+    with aaf2.open(str(tmp_path / "c" / "h.aaf"), "r") as f:
+        (mm,) = list(f.content.mastermobs())
+        assert float(mm.comments["GainReduction"][:-3]) < -12
     code, events = run(*base, "--out", tmp_path / "b" / "h.aaf", "--peak-ceiling-db", "off")
     assert code == 0 and any("recortado" in e["message"] for e in events if e["type"] == "warning")

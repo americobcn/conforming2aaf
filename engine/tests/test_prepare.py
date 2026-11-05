@@ -312,7 +312,7 @@ def test_hot_channel_is_lowered_so_it_does_not_clip(tmp_path, wav_factory, audio
 
     hot = read_wav(wav_factory("hot.wav", float_data=[0.1, 4.0, -2.0, 0.2], time_reference=0, track_names=["X"]))
     tl = _timeline(_clip(hot, src=0, dur=F(1, 12000)))
-    with prepare_media(tl, tmp_path / "r.aaf", "copy", split_mono=False) as res:
+    with prepare_media(tl, tmp_path / "r.aaf", "copy", split_mono=False, max_reduction_db=None) as res:
         mf = tl.tracks[0].clips[0].media
         gain = -1.0 - 20 * math.log10(4.0)  # the peak lands on -1 dBFS
         assert mf.applied_gain_db == pytest.approx(gain, abs=1e-6)
@@ -331,11 +331,33 @@ def test_only_the_channels_that_clip_are_lowered(tmp_path, wav_factory, audiocon
     two = read_wav(wav_factory("two.wav", channels=2, float_data=[0.5, 3.0, 0.25, -1.5] * 25, time_reference=0,
                                track_names=["A", "B"], ixml_extra="<SPEED><AUDIO_BIT_DEPTH>32</AUDIO_BIT_DEPTH></SPEED>"))
     tl = _timeline(_clip(two, channel=1, src=0, dur=F(1, 1000)), _clip(two, channel=2, name="b", rec=1, src=0, dur=F(1, 1000)))
-    with prepare_media(tl, tmp_path / "r.aaf", "copy", split_mono=True) as res:
+    with prepare_media(tl, tmp_path / "r.aaf", "copy", split_mono=True, max_reduction_db=None) as res:
         c1, c2 = tl.tracks[0].clips
         assert c1.media.applied_gain_db == 0.0 and c2.media.applied_gain_db < -9
         assert _data_ints(c1.media.path)[0] == 4194304  # 0.5 untouched
         assert len(res.warnings) == 1 and "two_2.wav" in res.warnings[0]
+
+
+def test_reduction_is_limited_to_6_db_and_the_rest_clips(tmp_path, wav_factory, audioconv_env):
+    glitch = read_wav(wav_factory("glitch.wav", float_data=[0.2, 40.0, -0.3, 0.1], time_reference=0, track_names=["X"]))
+    tl = _timeline(_clip(glitch, src=0, dur=F(1, 12000)))
+    with prepare_media(tl, tmp_path / "r.aaf", "copy", split_mono=False) as res:  # default limit: 6 dB
+        mf = tl.tracks[0].clips[0].media
+        assert mf.applied_gain_db == pytest.approx(-6.0)
+        ints = _data_ints(mf.path)
+        assert ints[0] == pytest.approx(0.2 * 10 ** (-6 / 20) * 8388608, abs=2)  # the music is only 6 dB lower
+        assert ints[1] == 8388607  # the glitch clips
+        (w,) = res.warnings
+        assert "reducido 6.0 dB" in w and "límite" in w and "+32.0 dBFS" in w and "1 muestras recortadas" in w
+
+
+def test_reduction_under_the_limit_is_applied_in_full(tmp_path, wav_factory, audioconv_env):
+    mild = read_wav(wav_factory("mild.wav", float_data=[0.2, 1.5, -0.3, 0.1], time_reference=0, track_names=["X"]))
+    tl = _timeline(_clip(mild, src=0, dur=F(1, 12000)))
+    with prepare_media(tl, tmp_path / "r.aaf", "copy", split_mono=False) as res:
+        assert tl.tracks[0].clips[0].media.applied_gain_db == pytest.approx(-1.0 - 20 * __import__("math").log10(1.5))
+        (w,) = res.warnings
+        assert "límite" not in w and "recortad" not in w
 
 
 def test_clean_float_file_is_not_touched(tmp_path, wav_factory, audioconv_env):

@@ -240,6 +240,7 @@ def prepare_media(
     split_mono: bool,
     progress: Callable[[str], None] | None = None,
     peak_ceiling_db: float | None = -1.0,
+    max_reduction_db: float | None = 6.0,
 ) -> Iterator[PrepareResult]:
     """Prepare media for the matched clips of `tl`; yields while the files must exist.
 
@@ -318,20 +319,26 @@ def prepare_media(
                     dest = alloc(f"{mf.stem}_{ch}.wav" if split_this else mf.path.name, key)
                     say(f"{'Convirtiendo' if floating else 'Partiendo'} {mf.path.name}"
                         f"{f' canal {ch}' if split_this else ''} ({i}/{len(clips)})")
-                    gain, peak = 0.0, 0.0
+                    gain, peak, needed = 0.0, 0.0, 0.0
                     if floating and peak_ceiling_db is not None:
                         measured = measure_peak(mf.path, channel or 0)
                         if measured.peak > 1.0:
                             peak = measured.peak
-                            gain = peak_ceiling_db - 20 * math.log10(peak)
+                            needed = peak_ceiling_db - 20 * math.log10(peak)
+                            gain = max(needed, -max_reduction_db) if max_reduction_db is not None else needed
                     stats = write_wav(mf, dest, channel, floating, gain, peak)
                     converted = read_wav(dest)
                     converted.applied_gain_db = gain
                     cache[key] = (converted, 1 if split_this else None)
                     finished(dest)
-                    if gain:
+                    peak_db = 20 * math.log10(peak) if peak else 0.0
+                    if gain and stats is not None and stats.clipped:
                         res.warnings.append(
-                            f"{dest.name}: nivel reducido {abs(gain):.1f} dB (pico {20 * math.log10(peak):+.1f} dBFS) "
+                            f"{dest.name}: nivel reducido {abs(gain):.1f} dB (límite; el pico de {peak_db:+.1f} dBFS "
+                            f"necesitaría {abs(needed):.1f} dB) y {stats.clipped} muestras recortadas")
+                    elif gain:
+                        res.warnings.append(
+                            f"{dest.name}: nivel reducido {abs(gain):.1f} dB (pico {peak_db:+.1f} dBFS) "
                             "para no recortar en PCM de 24 bits")
                     elif stats is not None and stats.clipped:
                         res.warnings.append(

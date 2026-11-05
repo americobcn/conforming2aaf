@@ -4,7 +4,7 @@
     conform2aaf convert INPUT --media DIR --out OUT.aaf [--fps 25] [--start-tc 01:00:00:00]
                         [--sample-rate 48000] [--choose T:C=/path/file.wav ...]
                         [--media-mode link|copy|embed] [--split-mono] [--picture auto|on|off]
-                        [--peak-ceiling-db -1|off]
+                        [--peak-ceiling-db -1|off] [--max-reduction-db 6|off]
 """
 from __future__ import annotations
 
@@ -113,6 +113,8 @@ def main(argv: list[str] | None = None) -> int:
             p.add_argument("--sample-rate", type=int, default=48000)
             p.add_argument("--media-mode", choices=MODES, default="link")
             p.add_argument("--split-mono", action="store_true")
+            p.add_argument("--max-reduction-db", default="6",
+                           help="most the level of a channel is lowered to avoid clipping (dB); 'off' removes the cap")
             p.add_argument("--peak-ceiling-db", default="-1",
                            help="float channels above 0 dBFS are lowered so the peak lands here; 'off' clips them")
     args = ap.parse_args(argv)
@@ -126,7 +128,8 @@ def main(argv: list[str] | None = None) -> int:
             skipped_pictures = expand_to_channels(tl) if tl.picture else 0
             with prepare_media(tl, out, args.media_mode, args.split_mono,
                                lambda m: emit("progress", stage="media", message=m),
-                               peak_ceiling_db=None if args.peak_ceiling_db == "off" else float(args.peak_ceiling_db)) as media:
+                               peak_ceiling_db=None if args.peak_ceiling_db == "off" else float(args.peak_ceiling_db),
+                               max_reduction_db=None if args.max_reduction_db == "off" else float(args.max_reduction_db)) as media:
                 for w in media.warnings:
                     emit("warning", message=w)
                 res = write_aaf(tl, out, args.sample_rate, embed=args.media_mode == "embed")
