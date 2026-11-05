@@ -168,6 +168,8 @@ class AAFWriter:
                          ("Project", mf.project), ("Description", mf.description)):
             if val:
                 mm.comments[key] = val
+        if mf.applied_gain_db:
+            mm.comments["GainReduction"] = f"{mf.applied_gain_db:.2f} dB"
         if mf.track_names:
             mm.comments["Tracks"] = ", ".join(mf.track_names)
         self.masters[mf.path] = mm

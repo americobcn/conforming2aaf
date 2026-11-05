@@ -40,6 +40,7 @@ final class ConformModel {
     var sampleRate = 48000
     var mediaMode = MediaMode.link
     var splitMono = true
+    var limitPeaks = true  // lower float channels above 0 dBFS when converting to 24 bit
     var pictureMode = PictureMode.auto
     var choices: [String: String] = [:]  // clip id -> chosen file path
 
@@ -109,6 +110,7 @@ final class ConformModel {
     func convert(to url: URL) async {
         var args = ["--out", url.path, "--sample-rate", String(sampleRate), "--media-mode", mediaMode.rawValue]
         if splitMono || mediaMode == .embed { args.append("--split-mono") }
+        args += ["--peak-ceiling-db", limitPeaks ? "-1" : "off"]
         await run(["convert"] + baseArguments() + args)
     }
 

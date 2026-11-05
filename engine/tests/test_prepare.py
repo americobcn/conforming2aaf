@@ -299,12 +299,50 @@ def test_link_without_split_warns_about_float(tmp_path, wav_factory):
         assert "coma flotante" in w and "Pro Tools" in w
 
 
-def test_clipped_samples_are_reported(tmp_path, wav_factory, audioconv_env):
+def test_clipped_samples_are_reported_when_peak_control_is_off(tmp_path, wav_factory, audioconv_env):
     hot = read_wav(wav_factory("hot.wav", float_data=[0.1, 1.5, -2.0, 0.2], time_reference=0))
     tl = _timeline(_clip(hot, src=0, dur=F(1, 12000)))
-    with prepare_media(tl, tmp_path / "r.aaf", "copy", split_mono=False) as res:
+    with prepare_media(tl, tmp_path / "r.aaf", "copy", split_mono=False, peak_ceiling_db=None) as res:
         (w,) = res.warnings
         assert "2 muestras" in w and "recortad" in w and "hot.wav" in w
+
+
+def test_hot_channel_is_lowered_so_it_does_not_clip(tmp_path, wav_factory, audioconv_env):
+    import math
+
+    hot = read_wav(wav_factory("hot.wav", float_data=[0.1, 4.0, -2.0, 0.2], time_reference=0, track_names=["X"]))
+    tl = _timeline(_clip(hot, src=0, dur=F(1, 12000)))
+    with prepare_media(tl, tmp_path / "r.aaf", "copy", split_mono=False) as res:
+        mf = tl.tracks[0].clips[0].media
+        gain = -1.0 - 20 * math.log10(4.0)  # the peak lands on -1 dBFS
+        assert mf.applied_gain_db == pytest.approx(gain, abs=1e-6)
+        ints = _data_ints(mf.path)
+        assert max(abs(v) for v in ints) == pytest.approx(10 ** (-1 / 20) * 8388608, abs=2)
+        assert ints[0] == pytest.approx(0.1 * 10 ** (gain / 20) * 8388608, abs=2)  # the whole file is scaled
+        (w,) = res.warnings
+        assert "reducido 13.0 dB" in w and "+12.0 dBFS" in w and "hot.wav" in w
+        off, size = read_chunks(mf.path)["iXML"]
+        note = mf.path.read_bytes()[off : off + size]
+        assert b"<GAIN_DB>-13.04<" in note and b"<SOURCE_PEAK_DBFS>12.04<" in note
+
+
+def test_only_the_channels_that_clip_are_lowered(tmp_path, wav_factory, audioconv_env):
+    # ch1 peaks at 0.5, ch2 at 3.0: only channel 2 must change
+    two = read_wav(wav_factory("two.wav", channels=2, float_data=[0.5, 3.0, 0.25, -1.5] * 25, time_reference=0,
+                               track_names=["A", "B"], ixml_extra="<SPEED><AUDIO_BIT_DEPTH>32</AUDIO_BIT_DEPTH></SPEED>"))
+    tl = _timeline(_clip(two, channel=1, src=0, dur=F(1, 1000)), _clip(two, channel=2, name="b", rec=1, src=0, dur=F(1, 1000)))
+    with prepare_media(tl, tmp_path / "r.aaf", "copy", split_mono=True) as res:
+        c1, c2 = tl.tracks[0].clips
+        assert c1.media.applied_gain_db == 0.0 and c2.media.applied_gain_db < -9
+        assert _data_ints(c1.media.path)[0] == 4194304  # 0.5 untouched
+        assert len(res.warnings) == 1 and "two_2.wav" in res.warnings[0]
+
+
+def test_clean_float_file_is_not_touched(tmp_path, wav_factory, audioconv_env):
+    ok = read_wav(wav_factory("ok.wav", float_data=[0.1, 0.5, -0.9, 0.2], time_reference=0))
+    tl = _timeline(_clip(ok, src=0, dur=F(1, 12000)))
+    with prepare_media(tl, tmp_path / "r.aaf", "copy", split_mono=False) as res:
+        assert tl.tracks[0].clips[0].media.applied_gain_db == 0.0 and res.warnings == []
 
 
 def test_embed_converts_float_then_embeds(tmp_path, wav_factory, audioconv_env):

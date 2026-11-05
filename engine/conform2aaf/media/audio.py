@@ -41,14 +41,26 @@ def audioconv_path() -> Path:
         "No se encuentra audioconv (conversión de audio con AudioToolbox). Compila el motor con scripts/build_engine.sh")
 
 
-def convert_pcm24(path: Path, channel: int, sink: BinaryIO) -> ConvertStats:
-    """Write the 24-bit PCM of `path` to `sink`: channel 1..N, or 0 for all channels interleaved."""
+def measure_peak(path: Path, channel: int) -> ConvertStats:
+    """Peak (before any gain) and clipped-sample count of a channel (0 = all), without writing audio."""
+    return convert_pcm24(path, channel, None)
+
+
+def convert_pcm24(path: Path, channel: int, sink: BinaryIO | None, gain_db: float = 0.0) -> ConvertStats:
+    """Write the 24-bit PCM of `path` to `sink`: channel 1..N, or 0 for all channels interleaved.
+
+    gain_db is applied before the conversion. With sink None nothing is written (measure only).
+    """
+    cmd = [str(audioconv_path()), "--in", str(path), "--channel", str(channel), "--out", "-" if sink else os.devnull]
+    if gain_db:
+        cmd += ["--gain-db", f"{gain_db:.10f}"]
     proc = subprocess.Popen(
-        [str(audioconv_path()), "--in", str(path), "--channel", str(channel), "--out", "-"],
+        cmd,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     try:
         while block := proc.stdout.read(BLOCK):
-            sink.write(block)
+            if sink:
+                sink.write(block)
         err = proc.stderr.read().decode("utf-8", "replace").strip()
         code = proc.wait()
     finally:

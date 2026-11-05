@@ -29,6 +29,9 @@ struct ExportOptionsView: View {
             }
             .help("Copiar crea la carpeta '<nombre> Media' junto al AAF. Embeber guarda el audio dentro del AAF (solo PCM 16/24 bits).")
 
+            Toggle("Bajar el nivel de los canales que pasen de 0 dBFS", isOn: $model.limitPeaks)
+                .help("Los ficheros de 32 bits float se convierten a PCM de 24 bits, que no admite picos por encima de 0 dBFS. Con esto, cada canal que se pasa se baja entero hasta dejar su pico en −1 dBFS. Sin esto, esos picos se recortan.")
+
             Toggle("Partir polifónicos a mono", isOn: Binding(
                 get: { model.splitMono || model.mediaMode == .embed },
                 set: { model.splitMono = $0 }

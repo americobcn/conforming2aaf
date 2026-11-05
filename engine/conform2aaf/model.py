@@ -28,6 +28,7 @@ class MediaFile:
     format_tag: int = 1  # 1 = PCM, 3 = IEEE float
     block_align: int = 0
     rf64: bool = False
+    applied_gain_db: float = 0.0  # level lowered when converting float to 24 bit so it does not clip
 
     @property
     def stem(self) -> str:

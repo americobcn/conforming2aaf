@@ -9,6 +9,7 @@ iXML track list is reduced to the channel that was extracted.
 from __future__ import annotations
 
 import hashlib
+import math
 import re
 import shutil
 import struct
@@ -20,7 +21,7 @@ from pathlib import Path
 from typing import Callable, Iterator
 
 from ..model import MediaFile, Timeline
-from .audio import ConvertStats, convert_pcm24
+from .audio import ConvertStats, convert_pcm24, measure_peak
 from .riff import read_chunks, read_wav
 
 CHUNK_FRAMES = 1 << 18
@@ -84,6 +85,18 @@ def _pcm24_ixml(raw: bytes) -> bytes:
     return re.sub(rb"(<(?:AUDIO_)?BIT_DEPTH>)32(<)", rb"\g<1>24\2", raw)
 
 
+def _ixml_gain_note(raw: bytes, gain_db: float, peak: float) -> bytes:
+    """Record the level change in the iXML (own element: readers ignore it, people can find it)."""
+    try:
+        root = ET.fromstring(raw.rstrip(b"\x00").decode("utf-8"))
+    except (ET.ParseError, UnicodeDecodeError):
+        return raw
+    note = ET.SubElement(root, "CONFORM2AAF")
+    ET.SubElement(note, "GAIN_DB").text = f"{gain_db:.2f}"
+    ET.SubElement(note, "SOURCE_PEAK_DBFS").text = f"{20 * math.log10(peak):.2f}"
+    return ET.tostring(root, encoding="utf-8", xml_declaration=True)
+
+
 def _pcm24_bext(payload: bytes) -> bytes:
     """The coding history says W=32 (bits per sample): the converted file holds 24."""
     if len(payload) <= 602:
@@ -120,12 +133,14 @@ def _mono_ixml(raw: bytes, channel: int) -> bytes:
     return ET.tostring(root, encoding="utf-8", xml_declaration=True)
 
 
-def write_wav(src: MediaFile, dest: Path, channel: int | None, convert: bool = False) -> ConvertStats | None:
+def write_wav(src: MediaFile, dest: Path, channel: int | None, convert: bool = False,
+              gain_db: float = 0.0, source_peak: float = 0.0) -> ConvertStats | None:
     """Write `src` as a new WAV with every other chunk preserved.
 
     channel: 1-based channel to extract as a mono file (own identity, see _split_bext), or None
     to keep all channels. convert: 32-bit float -> PCM 24 bit through AudioToolbox (audio.py);
-    returns its statistics (None when no conversion ran).
+    returns its statistics (None when no conversion ran). gain_db lowers the level before the
+    conversion (source_peak is only recorded in the iXML).
     """
     chunks = read_chunks(src.path)
     out_channels = 1 if channel else src.channels
@@ -157,6 +172,8 @@ def write_wav(src: MediaFile, dest: Path, channel: int | None, convert: bool = F
                         payload = _mono_ixml(payload, channel)
                     if convert:
                         payload = _pcm24_ixml(payload)
+                        if gain_db:
+                            payload = _ixml_gain_note(payload, gain_db, source_peak)
                 elif cid == "bext":
                     if channel:
                         payload = _split_bext(payload, channel)
@@ -189,7 +206,7 @@ def write_wav(src: MediaFile, dest: Path, channel: int | None, convert: bool = F
                     continue
                 out.write(b"data" + struct.pack("<I", 0xFFFFFFFF if rf64 else data_size))
                 if convert:
-                    stats = convert_pcm24(src.path, channel or 0, out)
+                    stats = convert_pcm24(src.path, channel or 0, out, gain_db)
                     if stats.frames != src.frames:
                         raise RuntimeError(f"{src.path.name}: audioconv devolvió {stats.frames} muestras de {src.frames}")
                 else:
@@ -222,6 +239,7 @@ def prepare_media(
     mode: str,
     split_mono: bool,
     progress: Callable[[str], None] | None = None,
+    peak_ceiling_db: float | None = -1.0,
 ) -> Iterator[PrepareResult]:
     """Prepare media for the matched clips of `tl`; yields while the files must exist.
 
@@ -300,12 +318,24 @@ def prepare_media(
                     dest = alloc(f"{mf.stem}_{ch}.wav" if split_this else mf.path.name, key)
                     say(f"{'Convirtiendo' if floating else 'Partiendo'} {mf.path.name}"
                         f"{f' canal {ch}' if split_this else ''} ({i}/{len(clips)})")
-                    stats = write_wav(mf, dest, channel, floating)
-                    cache[key] = (read_wav(dest), 1 if split_this else None)
+                    gain, peak = 0.0, 0.0
+                    if floating and peak_ceiling_db is not None:
+                        measured = measure_peak(mf.path, channel or 0)
+                        if measured.peak > 1.0:
+                            peak = measured.peak
+                            gain = peak_ceiling_db - 20 * math.log10(peak)
+                    stats = write_wav(mf, dest, channel, floating, gain, peak)
+                    converted = read_wav(dest)
+                    converted.applied_gain_db = gain
+                    cache[key] = (converted, 1 if split_this else None)
                     finished(dest)
-                    if stats is not None and stats.clipped:
+                    if gain:
                         res.warnings.append(
-                            f"{mf.path.name}: {stats.clipped} muestras superan 0 dBFS (pico {stats.peak:.2f}) y se han "
+                            f"{dest.name}: nivel reducido {abs(gain):.1f} dB (pico {20 * math.log10(peak):+.1f} dBFS) "
+                            "para no recortar en PCM de 24 bits")
+                    elif stats is not None and stats.clipped:
+                        res.warnings.append(
+                            f"{dest.name}: {stats.clipped} muestras superan 0 dBFS (pico {stats.peak:.2f}) y se han "
                             "recortado al convertir a PCM de 24 bits")
                 clip.media = cache[key][0]
                 if split_this:

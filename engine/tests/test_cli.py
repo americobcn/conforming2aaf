@@ -153,3 +153,19 @@ def test_convert_picture_list_writes_one_track_per_channel(tmp_path, wav_factory
         comp = next(f.content.compositionmobs())
         assert [s.name for s in comp.slots if s.media_kind == "Sound"] == ["1 MIXDOWN L", "2 MIXDOWN R", "3 Boom 1"]
         assert sorted(m.name for m in f.content.mastermobs()) == ["SL2_1", "SL2_2", "SL2_3"]
+
+
+def test_convert_float_lowers_hot_channels_unless_peak_control_is_off(tmp_path, wav_factory, audioconv_env):
+    samples = [0.1, 4.0] * 24000  # 1 s mono float, peak 4.0 (+12 dBFS)
+    wav_factory("media/hot.wav", float_data=samples, time_reference=36000 * SR, track_names=["MixL"])
+    edl = tmp_path / "h.edl"
+    edl.write_text("TITLE: H\nFCM: NON-DROP FRAME\n001  hot  A  C  10:00:00:00 10:00:01:00 01:00:00:00 01:00:01:00\n")
+    base = ["convert", edl, "--media", tmp_path / "media", "--fps", "25", "--media-mode", "copy"]
+    code, events = run(*base, "--out", tmp_path / "a" / "h.aaf")
+    assert code == 0, events
+    assert any("nivel reducido" in e["message"] for e in events if e["type"] == "warning")
+    with aaf2.open(str(tmp_path / "a" / "h.aaf"), "r") as f:
+        (mm,) = list(f.content.mastermobs())
+        assert mm.comments["GainReduction"].endswith("dB") and float(mm.comments["GainReduction"][:-3]) < -12
+    code, events = run(*base, "--out", tmp_path / "b" / "h.aaf", "--peak-ceiling-db", "off")
+    assert code == 0 and any("recortado" in e["message"] for e in events if e["type"] == "warning")

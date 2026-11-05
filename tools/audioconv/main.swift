@@ -3,11 +3,13 @@
 // decodes to float32; AudioConverter does the float -> 24-bit conversion). Chunks
 // (bext, iXML...) are not touched here: the Python engine writes the RIFF container.
 //
-//   audioconv --in FILE [--channel N] [--out PATH|-]
+//   audioconv --in FILE [--channel N] [--gain-db G] [--out PATH|-]
 //     --channel N  1-based channel to extract; 0 (default) keeps all channels interleaved
+//     --gain-db G  gain in dB applied before the conversion (default 0)
 //     --out        raw PCM destination, "-" (default) is stdout
 //   stderr, on success: {"frames":N,"channels":C,"clipped":K,"peak":P}
-//   clipped counts samples beyond +-1.0 (0 dBFS), which the 24-bit range cannot hold.
+//   peak is the source peak (before the gain); clipped counts the samples beyond +-1.0 (0 dBFS)
+//   after the gain, which the 24-bit range cannot hold.
 import AudioToolbox
 import Foundation
 
@@ -23,16 +25,20 @@ func check(_ status: OSStatus, _ what: String) {
 var input = ""
 var channel = 0
 var output = "-"
+var gain: Float = 1.0
 var args = CommandLine.arguments.dropFirst().makeIterator()
 while let arg = args.next() {
     switch arg {
     case "--in": input = args.next() ?? ""
     case "--channel": channel = Int(args.next() ?? "") ?? -1
     case "--out": output = args.next() ?? ""
+    case "--gain-db":
+        guard let db = Double(args.next() ?? "") else { fail("--gain-db needs a number") }
+        gain = Float(pow(10.0, db / 20.0))
     default: fail("unknown argument \(arg)")
     }
 }
-if input.isEmpty || channel < 0 { fail("usage: audioconv --in FILE [--channel N] [--out PATH|-]") }
+if input.isEmpty || channel < 0 { fail("usage: audioconv --in FILE [--channel N] [--gain-db G] [--out PATH|-]") }
 
 var file: ExtAudioFileRef?
 check(ExtAudioFileOpenURL(URL(fileURLWithPath: input) as CFURL, &file), "open \(input)")
@@ -103,7 +109,8 @@ while true {
     for i in 0..<(n * outChannels) {
         let magnitude = abs(selected[i])
         if magnitude > peak { peak = magnitude }
-        if magnitude > 1.0 { clipped += 1 }
+        if gain != 1.0 { selected[i] *= gain }
+        if magnitude * gain > 1.0 { clipped += 1 }
     }
     var packedSize = UInt32(n * outChannels * 3)
     selected.withUnsafeBytes { src in

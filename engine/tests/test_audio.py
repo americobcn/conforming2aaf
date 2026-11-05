@@ -3,7 +3,7 @@ import struct
 
 import pytest
 
-from conform2aaf.media.audio import convert_pcm24
+from conform2aaf.media.audio import convert_pcm24, measure_peak
 
 SR = 48000
 
@@ -43,3 +43,20 @@ def test_converts_24_bit_pcm_sources_too(wav_factory, audioconv_env):
 def test_errors_are_reported(tmp_path, audioconv_env):
     with pytest.raises(RuntimeError, match="audioconv"):
         convert_pcm24(tmp_path / "missing.wav", 1, io.BytesIO())
+
+
+def test_gain_is_applied_before_the_conversion(wav_factory, audioconv_env):
+    p = wav_factory("g.wav", float_data=[1.0, -1.0, 5.0, 0.5], time_reference=0)
+    out = io.BytesIO()
+    stats = convert_pcm24(p, 1, out, gain_db=-20.0)  # x0.1
+    expected = [round(v * 0.1 * 8388608) for v in (1.0, -1.0, 5.0, 0.5)]
+    assert all(abs(a - b) <= 1 for a, b in zip(_ints(out.getvalue()), expected))
+    assert stats.peak == pytest.approx(5.0) and stats.clipped == 0  # peak is the source's; nothing clips after -20 dB
+    assert convert_pcm24(p, 1, io.BytesIO()).clipped == 1  # without gain the 5.0 clips
+
+
+def test_measure_peak_does_not_need_an_output(wav_factory, audioconv_env):
+    p = wav_factory("m.wav", channels=2, float_data=[0.25, -3.0, 0.5, 0.1], time_reference=0)
+    assert measure_peak(p, 1).peak == pytest.approx(0.5)
+    assert measure_peak(p, 2).peak == pytest.approx(3.0)
+    assert measure_peak(p, 0).peak == pytest.approx(3.0)  # all channels: the overall peak
