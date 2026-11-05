@@ -9,3 +9,5 @@ __pycache__/
 engine/dist/
 Conformig2AAF/Resources/engine/
 *.egg-info/
+.python-version
+

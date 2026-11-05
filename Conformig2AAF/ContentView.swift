@@ -23,7 +23,7 @@ struct ContentView: View {
                 }
                 .padding(20)
             }
-            .frame(minWidth: 340, idealWidth: 380, maxWidth: 460)
+            .frame(minWidth: 340, idealWidth: 380)
 
             MatchReportView(model: model)
                 .frame(minWidth: 600, maxWidth: .infinity, maxHeight: .infinity)
