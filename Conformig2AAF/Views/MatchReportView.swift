@@ -24,13 +24,13 @@ struct MatchReportView: View {
                 header(report)
                 Table(rows(report)) {
                     TableColumn("") { row in StatusIcon(status: row.status) }.width(22)
-                    TableColumn("Pista", value: \.track).width(min: 60, ideal: 90)
+                    TableColumn("Pista", value: \.track).width(min: 20, ideal: 30, max: 80)
                     TableColumn("Clip", value: \.name).width(min: 80, ideal: 140)
                     TableColumn("Entrada") { Text($0.recordIn ?? "–").monospacedDigit() }.width(90)
                     TableColumn("TC origen") { Text($0.sourceIn ?? "–").monospacedDigit() }.width(90)
-                    TableColumn("Escena") { Text($0.scene ?? "") }.width(min: 44, ideal: 60)
-                    TableColumn("Toma") { Text($0.take ?? "") }.width(min: 36, ideal: 46)
-                    TableColumn("Canal") { Text($0.channel.map(String.init) ?? "–") }.width(44)
+                    TableColumn("Escena") { Text($0.scene ?? "") }.width(min: 40, ideal: 40, max: 70)
+                    TableColumn("Toma") { Text($0.take ?? "") }.width(min: 40, ideal: 40, max: 50)
+                    TableColumn("Canal") { Text($0.channel.map(String.init) ?? "–") }.width(40)
                     TableColumn("Fichero") { row in fileCell(row) }.width(min: 160, ideal: 260)
                 }
             } else {
