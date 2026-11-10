@@ -130,7 +130,6 @@ def test_picture_list_is_detected_and_matched_by_tc_and_take(tmp_path, wav_facto
     assert rep["counts"] == {"matched": 1, "ambiguous": 0, "missing": 1}
     first = rep["clips"][0]
     assert first["file"].endswith("SL2.wav") and (first["scene"], first["take"]) == ("05/12", "4")
-    assert any("Lista de imagen" in e["message"] for e in events if e["type"] == "warning")
 
 
 def test_picture_off_reads_no_clips(tmp_path, wav_factory):

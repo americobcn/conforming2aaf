@@ -30,13 +30,14 @@ def _read(path: Path, rate: FrameRate | None, picture: bool) -> Timeline:
 
 
 def read_timeline(path: Path, rate: FrameRate | None = None, picture: bool | None = None) -> Timeline:
-    """picture: True/False force the mode; None reads audio and falls back to picture cuts
-    (production sound is then conformed to them) when the list has no audio clips."""
+    """picture: True/False force the mode; None conforms the production sound to the picture
+    cuts and only falls back to the list's audio tracks when it has no picture cuts."""
     path = Path(path)
-    tl = _read(path, rate, bool(picture))
-    if picture is None and not any(True for _ in tl.clips()):
-        pic = _read(path, rate, True)
-        if any(True for _ in pic.clips()):
-            pic.warnings.insert(0, "Lista de imagen: se conformará el sonido directo de cada corte")
-            return pic
+    if picture is not None:
+        return _read(path, rate, picture)
+    pic = _read(path, rate, True)
+    if any(True for _ in pic.clips()):
+        return pic
+    tl = _read(path, rate, False)
+    tl.warnings.insert(0, "Lista sin cortes de imagen: se conforman sus pistas de audio")
     return tl

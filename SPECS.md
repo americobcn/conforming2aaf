@@ -1,6 +1,7 @@
 # Conformig2AAF — especificaciones
 
 **Propósito:** conformar el audio de producción (WAV/BWF) a partir de una lista de montaje (EDL, XML de Premiere/FCP7, FCPXML) y generar un **AAF** que Pro Tools importa con los clips en su posición exacta (precisión de muestra), enlazados a los WAV y con sus metadatos.
+No es necesario conformar los tracks de audio de la EDL/XML/FCPXml/etcetera.
 
 Estado: funcional de punta a punta para listas **con audio** y listas **solo de imagen**. Probado con Pro Tools 26.4.1 (ver §9). Lo que no está hecho está en §11.
 
@@ -57,11 +58,13 @@ Todas producen el mismo modelo (`model.py`): `Timeline` → `Track` → `Clip`, 
 | Formato | Lector | Qué lee |
 |---|---|---|
 | EDL CMX3600 | `readers/edl.py` | Eventos de audio (`A`, `A2`, `AA`, `AUD`), `FCM` DF/NDF, reel, `* FROM CLIP NAME`, `* SOURCE FILE`, `* SCENE/TAKE/TAPE`, nivel (`AUDIO LEVEL`), disolvencias (`D`) → crossfade o fundido desde/hacia negro. Cambios de velocidad (`M2`) y *wipes/keys*: aviso. |
-| Premiere / FCP7 XML (xmeml) | `readers/xmeml.py` | Pistas de audio y estéreo, `clipitem`, `file`/`pathurl`/timecode, transiciones (alineación centro/inicio/fin), nivel constante (automatización: aviso), pistas y clips desactivados omitidos |
+| Premiere / FCP7 XML (xmeml) | `readers/xmeml.py` | Pistas de audio y estéreo, `clipitem`, `file`/`pathurl`/timecode, transiciones (alineación centro/inicio/fin), nivel constante (automatización: aviso), pistas y clips desactivados omitidos. En modo imagen, también las **secuencias anidadas** de Premiere (clip de cámara + WAV sincronizado) en cualquier pista |
 | FCPXML 1.8–1.11 y `.fcpxmld` | `readers/fcpxml.py` | `spine`, `asset-clip`, `clip`, `sync-clip`, `ref-clip`, `mc-clip` (ángulo de audio activo), conectados, roles → pistas, solapes → pistas extra, transiciones, volumen y fundidos; `timeMap`: aviso |
 
 - **Canal de origen en EDL**: la EDL nombra la pista de destino (A3…A6), no el canal de origen. Los eventos simultáneos del mismo fichero y rango toman los canales 1, 2, 3… en el orden de las pistas.
-- **Listas de imagen**: si la lista no tiene clips de audio, se pasa a **modo imagen** (automático, o forzado). Cada corte de imagen es un clip sin canal que lleva `reel`, escena, toma y cinta si la lista los trae (EDL `* SCENE/TAKE/TAPE`, xmeml `logginginfo`, FCPXML `md scene/take/reel`). El AAF final tiene una pista por canal del WAV (`picture.py`), nombrada con el iXML (`1 MixL`, `3 BOOM`); los cortes solapados van a pistas `#2`.
+- **Modo imagen** (el normal): la app concilia el **sonido directo con los cortes de imagen**; la música y los efectos de la lista no se conforman. «Automático» y «Sí» usan el modo imagen; «Automático» solo pasa a las pistas de audio de la lista si no tiene cortes de imagen; «No» conforma siempre las pistas de audio.
+- **Secuencias anidadas (xmeml)**: Premiere pone los clips sincronizados como `clipitem` con una `<sequence>` dentro (vídeo de cámara + WAV en las pistas de audio), a menudo en las pistas de audio y repetidos en varias a la vez. Cada uso es un corte: el WAV de dentro da `source_in` (su TC + desfase en la anidada), `file_hint` y `reel`; el nombre es el del clip de cámara (fecha y hora). Si en ese tramo no hay WAV, se usa el TC del clip de cámara. Los cortes idénticos (misma posición, TC y fichero) se quedan en uno.
+- **Listas de imagen**: Cada corte de imagen es un clip sin canal que lleva `reel`, escena, toma y cinta si la lista los trae (EDL `* SCENE/TAKE/TAPE`, xmeml `logginginfo`, FCPXML `md scene/take/reel`). El AAF final tiene una pista por canal del WAV (`picture.py`), nombrada con el iXML (`1 MixL`, `3 BOOM`); los cortes solapados van a pistas `#2`.
 - **Timecode** (`timecode.py`): con fotogramas omitidos (29.97 y 59.94 DF), exacto con `Fraction`.
 
 ## 5. Enlace clip ↔ fichero (`media/matcher.py`)
@@ -70,9 +73,9 @@ Orden de evidencias:
 
 1. **Nombre**: fichero de la lista, nombre del clip o reel igual al nombre del WAV (sin extensión de audio, sin distinguir mayúsculas).
 2. **TC**: el rango de TC del clip se solapa con el del WAV (`bext` TimeReference + duración). Se admite solape parcial y se avisa de los fotogramas que faltan. Sin solape: no encontrado.
-3. **Fecha** (`clipdate.py`): el nombre del clip trae la fecha (`A001C012_261009_RNU8` → 2026-10-09; también `YYYYMMDD` y `YYYY-MM-DD`); el WAV, la del `bext`. Los ficheros de otro día se **descartan**; si ninguno coincide, el clip queda «no encontrado» con las fechas en la nota.
+3. **Fecha** (`clipdate.py`): el nombre del clip (o su reel) trae la fecha (`A001C012_261009_RNU8` → 2026-10-09; también `YYYYMMDD`, `YYYY-MM-DD` y `26Y10M30`); el WAV, la del `bext` o, si falta, la de su cinta cuando el grabador escribe ahí la fecha (`26Y10M28`, `261028`). Los nombres sin hora (`A003C007_261009_RNU8`) solo usan la fecha. Los ficheros de otro día se **descartan**; si ninguno coincide, el clip queda «no encontrado» con las fechas en la nota.
 4. **Hora**: el bloque `HHMMSS` tras la fecha (`A_0002C012_251111_115104_…`). Entre candidatos del mismo día, gana el que estaba grabando (±1 min). Solo desempata.
-5. **Cinta**, luego **escena + toma** (normalizadas: `5 12` = `5/12` = `05-12`). Salen del iXML y, si faltan, de la descripción del `bext` (`aSCENE=`, `aTAKE=`, `aTAPE=`). Solo cuentan si existen en ambos lados; un reel de cámara distinto de la cinta de sonido no es un conflicto.
+5. **Cinta**, luego **escena + toma** (normalizadas: `5 12` = `5/12` = `05-12`). Salen del iXML y, si faltan, de la descripción del `bext` (`aSCENE=`, `aTAKE=`, `aTAPE=`). Dos cintas que son fechas se comparan como fechas (`261028` = `26Y10M28`). Solo cuentan si existen en ambos lados; un reel de cámara distinto de la cinta de sonido no es un conflicto.
 6. Un único candidato con escena/toma contradictoria: **dudoso**. Varios sin resolver: **dudoso**, con el motivo. Sin TC en el clip: enlace por escena/toma (o cinta) solo con acuerdo positivo.
 
 La elección manual en los dudosos llega al motor como `--choose id=ruta`.

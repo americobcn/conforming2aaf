@@ -2,6 +2,7 @@
 
 A001C012_261009_RNU8.mov                    -> 2026-10-09
 A_0002C012_251111_115104_h1D2K.mov - Merged -> 2025-11-11 at 11:51:04
+26Y10M30 (date used as the sound tape)      -> 2026-10-30
 """
 from __future__ import annotations
 
@@ -10,6 +11,7 @@ from datetime import date, time
 
 _ISO = re.compile(r"(?<!\d)(20\d{2})[-./](\d{2})[-./](\d{2})(?!\d)")
 _YYYYMMDD = re.compile(r"(?<!\d)(20\d{2})(\d{2})(\d{2})(?!\d)")
+_YYMMDD_LETTERS = re.compile(r"(?<![0-9a-z])(\d{2})Y(\d{2})M(\d{2})(?!\d)", re.I)  # sound tape: 26Y10M30
 _YYMMDD = re.compile(r"(?<!\d)(\d{2})(\d{2})(\d{2})(?!\d)")  # RED / ARRI style: _261009_
 _TIME_AFTER_DATE = re.compile(r"[_\-. T]?(\d{2})(\d{2})(\d{2})(?!\d)")  # _115104 right after the date
 
@@ -27,6 +29,9 @@ def _find_date(text: str) -> tuple[date | None, int]:
         for m in pattern.finditer(text):
             if d := _valid_date(int(m.group(1)), int(m.group(2)), int(m.group(3))):
                 return d, m.end()
+    for m in _YYMMDD_LETTERS.finditer(text):
+        if d := _valid_date(2000 + int(m.group(1)), int(m.group(2)), int(m.group(3))):
+            return d, m.end()
     for m in _YYMMDD.finditer(text):
         yy = int(m.group(1))
         if 20 <= yy <= 39 and (d := _valid_date(2000 + yy, int(m.group(2)), int(m.group(3)))):

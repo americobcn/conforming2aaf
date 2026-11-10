@@ -62,3 +62,16 @@ def test_date_and_time_from_name(name, day, at):
 )
 def test_no_time(name):
     assert time_from_name(name) is None
+
+
+@pytest.mark.parametrize(
+    "tape,expected",
+    [
+        ("26Y10M30", date(2026, 10, 30)),  # sound recorders that write the date as the tape
+        ("26y10m28", date(2026, 10, 28)),
+        ("261030", date(2026, 10, 30)),
+    ],
+)
+def test_date_written_as_a_tape(tape, expected):
+    assert date_from_name(tape) == expected
+    assert time_from_name(tape) is None

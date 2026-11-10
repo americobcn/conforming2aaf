@@ -2,6 +2,7 @@
 
 ## Visión general del proyecto
 - **Propósito**: Aplicación MacOS nativa para conformar audio a partir de edit decision lists (EDLs), XMLs, FCPXmls a AAF preservando audio metadata (BWF, RIFF INFO, AXML, IXML, XMP).
+- Sincronizar el sonido directo (location audio) con el de video de la EDL/cmls,FCPXml, etc y exportar una AAF con ese conformado para inportar a una DAW.
 - Manipulación, limpieza y filtrado exhaustivos y flexibles de listas de edición (EDL, AAF, XML y sesiones de Pro Tools).
 - Gestionar proyectos complicados y con problemas (por ejemplo, nombres de archivos duplicados o falta del código de tiempo de la cámara) y sincronizar automáticamente el audio de producción.
 - Montaje y disposición de pistas: ofrece opciones avanzadas de montaje, como disposiciones híbridas, canales prioritarios, alineación de la forma de onda de las pistas guía y generación de pistas para cambios de escena o cortes de imagen.
@@ -10,8 +11,8 @@
 
 ## Estado actual
 **Hecho (probado con Pro Tools 26.4.1):**
-- Entrada: EDL CMX3600, XML de Premiere/FCP7 (xmeml), FCPXML y `.fcpxmld`, con audio o **solo con cortes de imagen** (modo imagen: se conforma el sonido directo de cada corte, una pista por canal).
-- Enlace clip ↔ WAV por nombre, TC (solape parcial), **fecha y hora del nombre del clip**, cinta y escena/toma (iXML o `bext`); descarte de candidatos de otro día; elección manual de los dudosos.
+- Entrada: EDL CMX3600, XML de Premiere/FCP7 (xmeml), FCPXML y `.fcpxmld`, en **modo imagen** por defecto: se conforma el sonido directo de cada corte de imagen, una pista por canal; incluye las secuencias anidadas de Premiere (cámara + WAV sincronizado). Las pistas de audio de la lista solo con «Lista de imagen: No» o si no hay cortes.
+- Enlace clip ↔ WAV por nombre, TC (solape parcial), **fecha y hora del nombre del clip**, cinta (también cinta con forma de fecha: `26Y10M28`) y escena/toma (iXML o `bext`); descarte de candidatos de otro día; elección manual de los dudosos.
 - Salida: AAF con precisión de muestra; medios enlazados, copiados junto al AAF o embebidos; WAV polifónicos partidos a mono con identidad única por canal; float de 32 bits convertido a PCM 24 bits con AudioToolbox (bajada de nivel de los canales que pasan de 0 dBFS, máximo 6 dB).
 - Interfaz: tabla de enlace, filtros, «Nueva importación» (⇧⌘N), nombres de salida que no sobrescriben.
 
@@ -37,3 +38,7 @@
 - Desarrollo con pruebas primero en el motor; la lógica Swift se verifica con un programa aparte (no hay target de pruebas en Xcode).
 - No se modifican nunca los ficheros de audio originales.
 - Los textos de la interfaz, avisos y notas van en español.
+
+## Actualizaciones
+- **Actualizar CLAUDE.md y SPECS.md**: Cada vez que se implemente o descarte una funcionalidad, framework, libreria o UX actualizar SPECS.md y CLAUDE.md
+

@@ -301,3 +301,31 @@ def test_time_does_not_override_the_date(tmp_path, wav_factory):
     c = dclip("A_0002C012_251111_115104_h1D2K.mov", F(H10 + 5))
     Matcher(files).match_clip(c, R25)
     assert c.match_status == "missing" and "otra fecha" in c.match_note
+
+
+# ---- the sound tape is often the shooting date (26Y10M28 or 261028) ----
+def test_tape_written_as_a_date_discards_other_days_when_bext_has_no_date(tmp_path, wav_factory):
+    wav_factory("a.wav", seconds=10, time_reference=H10 * SR, origination_date="", tape="26Y10M28")
+    wav_factory("b.wav", seconds=10, time_reference=H10 * SR, origination_date="", tape="26Y10M29")
+    files, _ = scan([tmp_path])
+    c = dclip("A_0001C004_261028_092634_h1DPY.mp4", F(H10 + 1))
+    Matcher(files).match_clip(c, R25)
+    assert c.match_status == "matched" and c.media.stem == "a" and c.match_note == "Enlazado por TC y fecha"
+
+
+def test_tapes_written_as_dates_in_two_forms_agree(tmp_path, wav_factory):
+    wav_factory("a.wav", seconds=10, time_reference=H10 * SR, origination_date="", tape="26Y10M28")
+    wav_factory("b.wav", seconds=10, time_reference=H10 * SR, origination_date="", tape="26Y10M29")
+    files, _ = scan([tmp_path])
+    c = pclip(F(H10 + 1), reel="261029", name="CAM_WITHOUT_DATE")
+    Matcher(files).match_clip(c, R25)
+    assert c.match_status == "matched" and c.media.stem == "b"
+
+
+def test_clip_name_without_time_still_matches_by_tc_and_date(tmp_path, wav_factory):
+    wav_factory("a.wav", seconds=600, time_reference=H10 * SR, origination_date="2026-10-09", origination_time="09:00:00")
+    wav_factory("b.wav", seconds=600, time_reference=H10 * SR, origination_date="2026-10-10", origination_time="11:00:00")
+    files, _ = scan([tmp_path])
+    c = dclip("A003C007_261009_RNU8.mov", F(H10 + 5))  # date but no time in the name
+    Matcher(files).match_clip(c, R25)
+    assert c.match_status == "matched" and c.media.stem == "a" and c.match_note == "Enlazado por TC y fecha"

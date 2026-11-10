@@ -118,3 +118,112 @@ def test_audio_mode_still_reads_audio_tracks(tmp_path):
     p.write_text(PIC_XML)
     tl = read_xmeml(p)
     assert not tl.picture and [c.name for c in tl.clips()] == ["camera audio"]
+
+
+# Premiere "synced" clips: each cut is a nested sequence holding the camera clip and the production WAV.
+NESTED_XML = """<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE xmeml>
+<xmeml version="4">
+ <sequence id="sequence-1">
+  <name>Nested</name>
+  <rate><timebase>25</timebase><ntsc>FALSE</ntsc></rate>
+  <timecode><rate><timebase>25</timebase><ntsc>FALSE</ntsc></rate>
+   <string>00:00:00:00</string><frame>0</frame><displayformat>NDF</displayformat></timecode>
+  <media>
+   <video>
+    <track>
+     <clipitem id="t1"><name>A003C007_261009_RNU8.mov</name><start>25</start><end>50</end><in>10</in><out>35</out>
+      <sequence id="sequence-3">
+       <name>A003C007_261009_RNU8.mov</name>
+       <media><video><track>
+        <clipitem id="n5"><name>A003C007_261009_RNU8.mov</name><start>0</start><end>100</end><in>0</in><out>100</out>
+         <file id="file-cam2"><name>A003C007_261009_RNU8.mov</name>
+          <timecode><rate><timebase>25</timebase><ntsc>FALSE</ntsc></rate><string>11:00:00:00</string></timecode></file>
+        </clipitem></track></video>
+        <audio><track>
+         <clipitem id="n6"><name>A003C007_261009_RNU8.mov</name><start>0</start><end>100</end><in>0</in><out>100</out>
+          <file id="file-cam2"/></clipitem></track></audio></media>
+      </sequence>
+     </clipitem>
+    </track>
+    <track><clipitem id="t0"><name>Logo.png</name><start>60</start><end>70</end><in>0</in><out>10</out>
+     <file id="file-png"><name>Logo.png</name></file></clipitem></track>
+   </video>
+   <audio>
+    <track premiereTrackType="Stereo">
+     <clipitem id="a1"><name>A_0001C004_261028_092634_h1DPY.mp4</name><start>0</start><end>25</end><in>50</in><out>75</out>
+      <sequence id="sequence-2">
+       <name>A_0001C004_261028_092634_h1DPY.mp4</name>
+       <media>
+        <video><track>
+         <clipitem id="n1"><name>A_0001C004_261028_092634_h1DPY.mp4</name><start>10</start><end>200</end><in>0</in><out>190</out>
+          <file id="file-cam"><name>A_0001C004_261028_092634_h1DPY.mp4</name>
+           <pathurl>file://localhost/Volumes/Cam/A_0001C004_261028_092634_h1DPY.mp4</pathurl>
+           <timecode><rate><timebase>25</timebase><ntsc>FALSE</ntsc></rate><string>10:00:00:00</string></timecode></file>
+         </clipitem></track></video>
+        <audio>
+         <track><clipitem id="n2"><name>01-01T04.WAV</name><start>0</start><end>200</end><in>0</in><out>200</out>
+          <file id="file-wav"><name>01-01T04.WAV</name>
+           <pathurl>file://localhost/Volumes/Snd/26Y10M28/01-01T04.WAV</pathurl>
+           <timecode><rate><timebase>25</timebase><ntsc>FALSE</ntsc></rate><string>09:59:59:15</string>
+            <reel><name>26Y10M28</name></reel></timecode></file>
+          <sourcetrack><mediatype>audio</mediatype><trackindex>1</trackindex></sourcetrack></clipitem></track>
+         <track><clipitem id="n3"><name>01-01T04.WAV</name><start>0</start><end>200</end><in>0</in><out>200</out>
+          <file id="file-wav"/><sourcetrack><mediatype>audio</mediatype><trackindex>2</trackindex></sourcetrack></clipitem></track>
+         <track><clipitem id="n4"><name>A_0001C004_261028_092634_h1DPY.mp4</name><start>10</start><end>200</end><in>0</in><out>190</out>
+          <file id="file-cam"/></clipitem></track>
+        </audio>
+       </media>
+      </sequence>
+     </clipitem>
+     <clipitem id="a2"><name>A_0001C004_261028_092634_h1DPY.mp4</name><start>50</start><end>75</end><in>0</in><out>25</out>
+      <enabled>FALSE</enabled><sequence id="sequence-2"/></clipitem>
+    </track>
+    <track premiereTrackType="Stereo">
+     <clipitem id="a3"><name>A_0001C004_261028_092634_h1DPY.mp4</name><start>0</start><end>25</end><in>50</in><out>75</out>
+      <sequence id="sequence-2"/></clipitem>
+     <clipitem id="a4"><name>music.wav</name><start>0</start><end>100</end><in>0</in><out>100</out>
+      <file id="file-music"><name>music.wav</name></file></clipitem>
+    </track>
+   </audio>
+  </media>
+ </sequence>
+</xmeml>
+"""
+
+
+def test_picture_mode_takes_cuts_from_nested_sequences(tmp_path):
+    p = tmp_path / "nested.xml"
+    p.write_text(NESTED_XML)
+    tl = read_xmeml(p, picture=True)
+    assert tl.picture
+    cuts = {c.name: c for c in tl.clips()}
+    # the nested clip used on two audio tracks is one cut; the disabled one and the music are left out
+    assert sorted(cuts) == ["A003C007_261009_RNU8.mov", "A_0001C004_261028_092634_h1DPY.mp4", "Logo.png"]
+
+    snd = cuts["A_0001C004_261028_092634_h1DPY.mp4"]
+    assert snd.record_in == 0 and snd.duration == 1
+    # WAV TC 09:59:59:15 + 50 frames into the nested sequence = 10:00:01:15
+    assert snd.source_in == F(36001) + F(15, 25)
+    assert snd.file_hint == "/Volumes/Snd/26Y10M28/01-01T04.WAV" and snd.reel == "26Y10M28"
+    assert snd.channel is None
+
+    # no WAV in the nested sequence: the camera TC is used (11:00:00:00 + 10 frames)
+    cam = cuts["A003C007_261009_RNU8.mov"]
+    assert cam.record_in == 1 and cam.duration == 1 and cam.source_in == F(39600) + F(10, 25)
+    assert any("desactivado" in w for w in tl.warnings)
+
+
+def test_nested_cut_is_split_where_the_wav_ends(tmp_path):
+    xml = NESTED_XML.replace("<start>0</start><end>200</end><in>0</in><out>200</out>\n          <file id=\"file-wav\"><name>",
+                             "<start>0</start><end>60</end><in>0</in><out>60</out>\n          <file id=\"file-wav\"><name>")
+    xml = xml.replace('<clipitem id="n3"><name>01-01T04.WAV</name><start>0</start><end>200</end><in>0</in><out>200</out>',
+                      '<clipitem id="n3"><name>01-01T04.WAV</name><start>0</start><end>60</end><in>0</in><out>60</out>')
+    p = tmp_path / "nested.xml"
+    p.write_text(xml)
+    tl = read_xmeml(p, picture=True)
+    parts = sorted((c for c in tl.clips() if c.name.startswith("A_0001")), key=lambda c: c.record_in)
+    # frames 50..60 come from the WAV, 60..75 only have the camera clip
+    assert [(c.record_in, c.duration) for c in parts] == [(0, F(10, 25)), (F(10, 25), F(15, 25))]
+    assert parts[0].file_hint.endswith("01-01T04.WAV")
+    assert parts[1].file_hint.endswith(".mp4") and parts[1].source_in == F(36000) + F(50, 25)

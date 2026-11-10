@@ -18,7 +18,7 @@ struct ExportOptionsView: View {
             Picker("Lista de imagen", selection: $model.pictureMode) {
                 ForEach(ConformModel.PictureMode.allCases) { Text($0.label).tag($0) }
             }
-            .help("Una lista solo con cortes de imagen se concilia con el sonido directo de cada corte, enlazado por TC y por escena, toma y cinta. Automático lo detecta si la lista no tiene audio.")
+            .help("Sí y Automático concilian el sonido directo con cada corte de imagen (también las secuencias anidadas de Premiere), enlazado por TC y cinta o fecha, y por escena y toma. Automático solo usa las pistas de audio de la lista si no tiene cortes de imagen. No: se conforman las pistas de audio de la lista.")
 
             Picker("Frecuencia de muestreo", selection: $model.sampleRate) {
                 ForEach(ConformModel.sampleRates, id: \.self) { Text("\($0) Hz") }
