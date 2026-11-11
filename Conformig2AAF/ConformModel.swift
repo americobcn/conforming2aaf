@@ -49,7 +49,13 @@ final class ConformModel {
     var status = ""
     var errorMessage: String?
     var isRunning = false
+    /// Inputs are locked while exporting: a change would start an analysis that kills the export.
+    var isExporting = false
     var lastOutput: URL?
+    /// Bumped by «Volver a analizar» so the re-analysis goes through the view's cancellable `task(id:)`.
+    private(set) var analysisRequest = 0
+    /// Identifies the latest engine run; an older, cancelled run must not touch the state.
+    private var runGeneration = 0
 
     var isEDL: Bool { inputURL?.pathExtension.lowercased() == "edl" }
     var canInspect: Bool { inputURL != nil && !mediaFolders.isEmpty }
@@ -58,11 +64,17 @@ final class ConformModel {
     /// Changes that require a new analysis.
     var inspectKey: String {
         let picks = choices.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }
-        return ([inputURL?.path ?? "", "\(includeSubfolders)", isEDL ? fps : "", pictureMode.rawValue]
+        return ([inputURL?.path ?? "", "\(includeSubfolders)", isEDL ? fps : "", pictureMode.rawValue,
+                 "\(analysisRequest)"]
                 + mediaFolders.map(\.path) + picks).joined(separator: "|")
     }
 
+    func requestAnalysis() {
+        analysisRequest += 1
+    }
+
     func setInput(_ url: URL) {
+        guard !isExporting else { return }
         inputURL = url
         choices = [:]
         report = nil
@@ -87,12 +99,14 @@ final class ConformModel {
     }
 
     func addMediaFolders(_ urls: [URL]) {
+        guard !isExporting else { return }
         for url in urls where !mediaFolders.contains(url) {
             mediaFolders.append(url)
         }
     }
 
     func choose(_ path: String, for clipID: String) {
+        guard !isExporting else { return }
         choices[clipID] = path
     }
 
@@ -128,6 +142,8 @@ final class ConformModel {
         var args = ["--out", url.path, "--sample-rate", String(sampleRate), "--media-mode", mediaMode.rawValue]
         if splitMono || mediaMode == .embed { args.append("--split-mono") }
         args += ["--peak-ceiling-db", limitPeaks ? "-1" : "off"]
+        isExporting = true
+        defer { isExporting = false }
         await run(["convert"] + baseArguments() + args)
     }
 
@@ -145,12 +161,15 @@ final class ConformModel {
     }
 
     private func run(_ args: [String]) async {
+        runGeneration += 1
+        let generation = runGeneration
         isRunning = true
         errorMessage = nil
         warnings = []
-        defer { isRunning = false }
+        defer { if generation == runGeneration { isRunning = false } }
         do {
             for try await event in try EngineClient.locate().run(args) {
+                guard generation == runGeneration else { break }
                 switch event {
                 case .progress(_, let message): status = message
                 case .warning(let message): warnings.append(message)
@@ -168,7 +187,7 @@ final class ConformModel {
                 }
             }
         } catch {
-            errorMessage = error.localizedDescription
+            if generation == runGeneration { errorMessage = error.localizedDescription }
         }
     }
 }

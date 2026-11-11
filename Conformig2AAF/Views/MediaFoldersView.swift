@@ -16,11 +16,10 @@ struct MediaFoldersView: View {
                     Image(systemName: "folder")
                     Text(folder.path).lineLimit(1).truncationMode(.head)
                     Spacer()
-                    Button {
+                    Button("Quitar carpeta", systemImage: "minus.circle") {
                         model.mediaFolders.removeAll { $0 == folder }
-                    } label: {
-                        Image(systemName: "minus.circle")
                     }
+                    .labelStyle(.iconOnly)
                     .buttonStyle(.borderless)
                     .help("Quitar carpeta")
                 }

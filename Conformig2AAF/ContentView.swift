@@ -16,9 +16,12 @@ struct ContentView: View {
         HSplitView {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
-                    step(1, "Lista de montaje") { DropZoneView(model: model) }
-                    step(2, "Audio de producción") { MediaFoldersView(model: model) }
-                    step(3, "Opciones") { ExportOptionsView(model: model) }
+                    Group {
+                        step(1, "Lista de montaje") { DropZoneView(model: model) }
+                        step(2, "Audio de producción") { MediaFoldersView(model: model) }
+                        step(3, "Opciones") { ExportOptionsView(model: model) }
+                    }
+                    .disabled(model.isExporting)
                     step(4, "Exportar") { exportSection }
                 }
                 .padding(20)
@@ -60,7 +63,7 @@ struct ContentView: View {
     private var exportSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Button("Volver a analizar") { Task { await model.inspect() } }
+                Button("Volver a analizar", action: model.requestAnalysis)
                     .disabled(!model.canInspect || model.isRunning)
                 Spacer()
                 Button("Exportar AAF…", action: export)

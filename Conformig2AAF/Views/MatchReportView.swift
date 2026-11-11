@@ -110,6 +110,7 @@ struct MatchReportView: View {
                 }
             }
             .help(row.note)
+            .disabled(model.isExporting)
         } else if let file = row.file {
             Text(URL(fileURLWithPath: file).lastPathComponent)
                 .help(row.note.isEmpty ? file : "\(file)\n\(row.note)")
@@ -125,8 +126,11 @@ private struct StatusIcon: View {
     var body: some View {
         switch status {
         case "matched": Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+            .accessibilityLabel("Enlazado")
         case "ambiguous": Image(systemName: "questionmark.circle.fill").foregroundStyle(.orange)
+            .accessibilityLabel("Dudoso")
         default: Image(systemName: "xmark.circle.fill").foregroundStyle(.red)
+            .accessibilityLabel("No encontrado")
         }
     }
 }

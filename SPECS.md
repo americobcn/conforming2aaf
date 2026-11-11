@@ -46,7 +46,8 @@ Ventana con dos paneles: pasos a la izquierda, tabla de enlace a la derecha.
    - *Bajar el nivel de los canales que pasen de 0 dBFS* (activado) y *Partir polifónicos a mono* (activado; bloqueado al embeber).
 4. **Exportar**: «Exportar AAF…» (⌘E), «Volver a analizar», «Mostrar en Finder».
 
-- El análisis arranca solo cuando hay lista y al menos una carpeta, y se repite al cambiar lista, carpetas, velocidad, modo de lista de imagen o elecciones manuales.
+- El análisis arranca solo cuando hay lista y al menos una carpeta, y se repite al cambiar lista, carpetas, velocidad, modo de lista de imagen o elecciones manuales. Un cambio durante el análisis lo cancela y empieza otro; solo el último actualiza la tabla. «Volver a analizar» sigue el mismo camino.
+- **Durante la exportación** los pasos 1–3 y el menú de los dudosos quedan bloqueados (un cambio lanzaría un análisis que cortaría la exportación).
 - **Tabla de enlace**: estado (enlazado / dudoso / no encontrado), pista, clip, entrada, TC origen, escena, toma, canal y fichero. Filtro por estado. En los dudosos, un menú elige el fichero a mano.
 - **Nunca sobrescribe**: si el AAF o su carpeta `<nombre> Media` existen, añade `_yyyy-MM-dd_HH-mm-ss` al nombre.
 - **Nueva importación** (⇧⌘N, barra de herramientas): vacía lista, carpetas, análisis, avisos y elecciones manuales; conserva las opciones de exportación. Desactivada mientras algo se ejecuta.
