@@ -26,7 +26,7 @@
 ## Estructura
 - `Conformig2AAF/`: app SwiftUI. `ConformModel` (estado), `Engine/` (lanza el motor y decodifica sus eventos JSON; `ClipStatus` es el estado de enlace de cada clip), `Views/` (un tipo por fichero; las partes de una vista se extraen a structs propios, no a funciones que devuelven `some View`).
 - `engine/conform2aaf/`: `readers/` (EDL, xmeml, FCPXML), `media/` (RIFF, escáner, matcher, `prepare.py`, `audio.py`), `writers/aaf.py`, `picture.py`, `clipdate.py`, `timecode.py`, `cli.py`. Tests en `engine/tests/`.
-- `tools/audioconv/`, `scripts/` (`build_engine.sh`, `embed_engine.sh`), `docs/superpowers/specs/` (diseño del hito 1).
+- `tools/audioconv/`, `scripts/` (`build_engine.sh`, `embed_engine.sh`, `make_icon.swift`), `docs/superpowers/specs/` (diseño del hito 1).
 
 ## Comandos
 - Pruebas del motor: `cd engine && .venv/bin/pytest -q`.
