@@ -59,7 +59,13 @@ final class ConformModel {
 
     var isEDL: Bool { inputURL?.pathExtension.lowercased() == "edl" }
     var canInspect: Bool { inputURL != nil && !mediaFolders.isEmpty }
-    var canExport: Bool { canInspect && !isRunning && (report?.counts["matched"] ?? 0) > 0 }
+    var canExport: Bool { canInspect && !isRunning && (report?.count(of: .matched) ?? 0) > 0 }
+
+    /// Embedding always splits to mono, whatever the stored choice.
+    var splitsToMono: Bool {
+        get { splitMono || mediaMode == .embed }
+        set { splitMono = newValue }
+    }
 
     /// Changes that require a new analysis.
     var inspectKey: String {
@@ -117,8 +123,8 @@ final class ConformModel {
         let dir = url.deletingLastPathComponent()
         let stem = url.deletingPathExtension().lastPathComponent
         func taken(_ name: String) -> Bool {
-            fm.fileExists(atPath: dir.appendingPathComponent("\(name).aaf").path)
-                || fm.fileExists(atPath: dir.appendingPathComponent("\(name) Media").path)
+            fm.fileExists(atPath: dir.appending(path: "\(name).aaf").path)
+                || fm.fileExists(atPath: dir.appending(path: "\(name) Media").path)
         }
         guard taken(stem) else { return url }
         let format = DateFormatter()
@@ -131,7 +137,7 @@ final class ConformModel {
             n += 1
             name = "\(base)-\(n)"
         }
-        return dir.appendingPathComponent("\(name).aaf")
+        return dir.appending(path: "\(name).aaf")
     }
 
     func inspect() async {
@@ -140,7 +146,7 @@ final class ConformModel {
 
     func convert(to url: URL) async {
         var args = ["--out", url.path, "--sample-rate", String(sampleRate), "--media-mode", mediaMode.rawValue]
-        if splitMono || mediaMode == .embed { args.append("--split-mono") }
+        if splitsToMono { args.append("--split-mono") }
         args += ["--peak-ceiling-db", limitPeaks ? "-1" : "off"]
         isExporting = true
         defer { isExporting = false }
@@ -183,7 +189,7 @@ final class ConformModel {
                     lastOutput = URL(fileURLWithPath: r.output)
                     var text = Self.inflected("AAF exportado: ^[\(r.clipsWritten) clip](inflect: true), ^[\(r.clipsSkipped) omitido](inflect: true)")
                     if r.mediaFiles > 0 {
-                        let size = ByteCountFormatter.string(fromByteCount: Int64(r.mediaBytes), countStyle: .file)
+                        let size = Int64(r.mediaBytes).formatted(.byteCount(style: .file))
                         text += r.mediaDir == nil
                             ? Self.inflected(". ^[\(r.mediaFiles) fichero embebido](inflect: true) (\(size))")
                             : Self.inflected(". ^[\(r.mediaFiles) fichero de audio](inflect: true) (\(size)) en la carpeta de medios")

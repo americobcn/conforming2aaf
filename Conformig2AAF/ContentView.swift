@@ -5,9 +5,7 @@
 //  Created by Américo Cot on 1/11/26.
 //
 
-import AppKit
 import SwiftUI
-import UniformTypeIdentifiers
 
 struct ContentView: View {
     @State private var model = ConformModel()
@@ -17,12 +15,12 @@ struct ContentView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                     Group {
-                        step(1, "Lista de montaje") { DropZoneView(model: model) }
-                        step(2, "Audio de producción") { MediaFoldersView(model: model) }
-                        step(3, "Opciones") { ExportOptionsView(model: model) }
+                        StepSection(number: 1, title: "Lista de montaje") { DropZoneView(model: model) }
+                        StepSection(number: 2, title: "Audio de producción") { MediaFoldersView(model: model) }
+                        StepSection(number: 3, title: "Opciones") { ExportOptionsView(model: model) }
                     }
                     .disabled(model.isExporting)
-                    step(4, "Exportar") { exportSection }
+                    StepSection(number: 4, title: "Exportar") { ExportSection(model: model) }
                 }
                 .padding(20)
             }
@@ -43,53 +41,6 @@ struct ContentView: View {
         .task(id: model.inspectKey) {
             if model.canInspect { await model.inspect() }
         }
-    }
-
-    private func step<Content: View>(_ n: Int, _ title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label {
-                Text(title).font(.headline)
-            } icon: {
-                Text("\(n)")
-                    .font(.caption.bold())
-                    .frame(width: 20, height: 20)
-                    .background(.tint, in: .circle)
-                    .foregroundStyle(.white)
-            }
-            content()
-        }
-    }
-
-    private var exportSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Button("Volver a analizar", action: model.requestAnalysis)
-                    .disabled(!model.canInspect || model.isRunning)
-                Spacer()
-                Button("Exportar AAF…", action: export)
-                    .keyboardShortcut("e")
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!model.canExport)
-            }
-            if !model.status.isEmpty {
-                Text(model.status).font(.callout).foregroundStyle(.secondary)
-            }
-            if let out = model.lastOutput {
-                Button("Mostrar en Finder") { NSWorkspace.shared.activateFileViewerSelecting([out]) }
-                    .buttonStyle(.link)
-            }
-        }
-    }
-
-    private func export() {
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [UTType(filenameExtension: "aaf") ?? .data]
-        let stem = model.inputURL?.deletingPathExtension().lastPathComponent ?? "Conform"
-        panel.nameFieldStringValue = "\(stem).aaf"
-        panel.message = "Si ya existe un AAF con ese nombre no se sobrescribe: se añade la fecha y hora al nombre."
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        let target = ConformModel.uniqueOutputURL(url)
-        Task { await model.convert(to: target) }
     }
 }
 

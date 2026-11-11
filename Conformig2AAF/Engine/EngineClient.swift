@@ -22,14 +22,14 @@ nonisolated struct EngineClient: Sendable {
         env["PYTHONDONTWRITEBYTECODE"] = "1"
         env["PYTHONIOENCODING"] = "utf-8"
         if let dev = env["CONFORM2AAF_ENGINE"], !dev.isEmpty {
-            let py = URL(fileURLWithPath: dev).appendingPathComponent(".venv/bin/python")
+            let py = URL(fileURLWithPath: dev).appending(path: ".venv/bin/python")
             guard FileManager.default.isExecutableFile(atPath: py.path) else { throw EngineError.notFound(py.path) }
             return EngineClient(python: py, environment: env)
         }
-        let root = Bundle.main.resourceURL!.appendingPathComponent("engine")
-        let py = root.appendingPathComponent("python/bin/python3")
+        let root = Bundle.main.resourceURL!.appending(path: "engine")
+        let py = root.appending(path: "python/bin/python3")
         guard FileManager.default.isExecutableFile(atPath: py.path) else { throw EngineError.notFound(py.path) }
-        env["PYTHONPATH"] = root.appendingPathComponent("lib").path
+        env["PYTHONPATH"] = root.appending(path: "lib").path
         return EngineClient(python: py, environment: env)
     }
 

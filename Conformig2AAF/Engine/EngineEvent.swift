@@ -38,6 +38,8 @@ nonisolated struct EngineReport: Decodable, Sendable {
     let timeline: TimelineInfo
     let counts: [String: Int]
     let clips: [ClipRow]
+
+    func count(of status: ClipStatus) -> Int { counts[status.rawValue] ?? 0 }
 }
 
 nonisolated struct ClipRow: Decodable, Identifiable, Hashable, Sendable {
@@ -51,7 +53,7 @@ nonisolated struct ClipRow: Decodable, Identifiable, Hashable, Sendable {
     let scene: String?
     let take: String?
     let tape: String?
-    let status: String
+    let status: ClipStatus
     let note: String
     let file: String?
     let candidates: [String]

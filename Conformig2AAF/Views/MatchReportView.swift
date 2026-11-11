@@ -3,25 +3,12 @@ import SwiftUI
 /// Review: every clip of the edit list and the production file it links to.
 struct MatchReportView: View {
     let model: ConformModel
-    @State private var filter = Filter.all
-
-    enum Filter: String, CaseIterable, Identifiable {
-        case all = "Todos", matched = "Enlazados", ambiguous = "Dudosos", missing = "No encontrados"
-        var id: Self { self }
-        var status: String? {
-            switch self {
-            case .all: nil
-            case .matched: "matched"
-            case .ambiguous: "ambiguous"
-            case .missing: "missing"
-            }
-        }
-    }
+    @State private var filter = ReportFilter.all
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             if let report = model.report {
-                header(report)
+                ReportHeader(report: report, isRunning: model.isRunning, filter: $filter)
                 Table(rows(report)) {
                     TableColumn("") { row in StatusIcon(status: row.status) }.width(22)
                     TableColumn("Pista", value: \.track).width(min: 20, ideal: 30, max: 80)
@@ -31,7 +18,7 @@ struct MatchReportView: View {
                     TableColumn("Escena") { Text($0.scene ?? "") }.width(min: 40, ideal: 40, max: 70)
                     TableColumn("Toma") { Text($0.take ?? "") }.width(min: 40, ideal: 40, max: 50)
                     TableColumn("Canal") { Text($0.channel.map(String.init) ?? "–") }.width(40)
-                    TableColumn("Fichero") { row in fileCell(row) }.width(min: 160, ideal: 260)
+                    TableColumn("Fichero") { row in ClipFileCell(row: row, model: model) }.width(min: 160, ideal: 260)
                 }
             } else {
                 ContentUnavailableView(
@@ -46,16 +33,7 @@ struct MatchReportView: View {
                     .textSelection(.enabled)
             }
             if !model.warnings.isEmpty {
-                DisclosureGroup("^[\(model.warnings.count) aviso](inflect: true)") {
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 4) {
-                            ForEach(Array(model.warnings.enumerated()), id: \.offset) { Text($0.element) }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
-                    }
-                    .frame(maxHeight: 120)
-                }
+                WarningsList(warnings: model.warnings)
             }
         }
         .padding(16)
@@ -64,76 +42,5 @@ struct MatchReportView: View {
     private func rows(_ report: EngineReport) -> [ClipRow] {
         guard let status = filter.status else { return report.clips }
         return report.clips.filter { $0.status == status }
-    }
-
-    private func header(_ report: EngineReport) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(report.timeline.name).font(.title2.bold())
-                Text("\(report.timeline.rate) fps · inicio \(report.timeline.startTc ?? "–") · ^[\(report.timeline.tracks.count) pista](inflect: true)")
-                    .foregroundStyle(.secondary)
-                Spacer()
-                if model.isRunning { ProgressView().controlSize(.small) }
-            }
-            if report.timeline.picture == true {
-                Label("Lista de imagen: se concilia el sonido directo de cada corte, todos los canales", systemImage: "film")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
-            HStack(spacing: 16) {
-                count("matched", "Enlazado", "Enlazados", .green, report)
-                count("ambiguous", "Dudoso", "Dudosos", .orange, report)
-                count("missing", "No encontrado", "No encontrados", .red, report)
-                Spacer()
-                Picker("Mostrar", selection: $filter) {
-                    ForEach(Filter.allCases) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .frame(maxWidth: 380)
-            }
-        }
-    }
-
-    /// Singular and plural are given by hand: automatic inflection reads «enlazado» as a verb.
-    private func count(_ key: String, _ singular: String, _ plural: String, _ color: Color,
-                       _ report: EngineReport) -> some View {
-        let n = report.counts[key] ?? 0
-        return Label("\(n) \(n == 1 ? singular : plural)", systemImage: "circle.fill")
-            .foregroundStyle(color)
-            .labelStyle(.titleAndIcon)
-    }
-
-    @ViewBuilder
-    private func fileCell(_ row: ClipRow) -> some View {
-        if row.status == "ambiguous", !row.candidates.isEmpty {
-            Menu("Elegir fichero (\(row.candidates.count))") {
-                ForEach(row.candidates, id: \.self) { path in
-                    Button(path) { model.choose(path, for: row.id) }
-                }
-            }
-            .help(row.note)
-            .disabled(model.isExporting)
-        } else if let file = row.file {
-            Text(URL(fileURLWithPath: file).lastPathComponent)
-                .help(row.note.isEmpty ? file : "\(file)\n\(row.note)")
-        } else {
-            Text(row.note).foregroundStyle(.secondary)
-        }
-    }
-}
-
-private struct StatusIcon: View {
-    let status: String
-
-    var body: some View {
-        switch status {
-        case "matched": Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-            .accessibilityLabel("Enlazado")
-        case "ambiguous": Image(systemName: "questionmark.circle.fill").foregroundStyle(.orange)
-            .accessibilityLabel("Dudoso")
-        default: Image(systemName: "xmark.circle.fill").foregroundStyle(.red)
-            .accessibilityLabel("No encontrado")
-        }
     }
 }
