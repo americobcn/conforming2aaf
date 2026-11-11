@@ -46,7 +46,7 @@ struct MatchReportView: View {
                     .textSelection(.enabled)
             }
             if !model.warnings.isEmpty {
-                DisclosureGroup("\(model.warnings.count) avisos") {
+                DisclosureGroup("^[\(model.warnings.count) aviso](inflect: true)") {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 4) {
                             ForEach(Array(model.warnings.enumerated()), id: \.offset) { Text($0.element) }
@@ -70,7 +70,7 @@ struct MatchReportView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline) {
                 Text(report.timeline.name).font(.title2.bold())
-                Text("\(report.timeline.rate) fps · inicio \(report.timeline.startTc ?? "–") · \(report.timeline.tracks.count) pistas")
+                Text("\(report.timeline.rate) fps · inicio \(report.timeline.startTc ?? "–") · ^[\(report.timeline.tracks.count) pista](inflect: true)")
                     .foregroundStyle(.secondary)
                 Spacer()
                 if model.isRunning { ProgressView().controlSize(.small) }
@@ -81,9 +81,9 @@ struct MatchReportView: View {
                     .foregroundStyle(.secondary)
             }
             HStack(spacing: 16) {
-                count("matched", "Enlazados", .green, report)
-                count("ambiguous", "Dudosos", .orange, report)
-                count("missing", "No encontrados", .red, report)
+                count("matched", "Enlazado", "Enlazados", .green, report)
+                count("ambiguous", "Dudoso", "Dudosos", .orange, report)
+                count("missing", "No encontrado", "No encontrados", .red, report)
                 Spacer()
                 Picker("Mostrar", selection: $filter) {
                     ForEach(Filter.allCases) { Text($0.rawValue).tag($0) }
@@ -95,8 +95,11 @@ struct MatchReportView: View {
         }
     }
 
-    private func count(_ key: String, _ label: String, _ color: Color, _ report: EngineReport) -> some View {
-        Label("\(report.counts[key] ?? 0) \(label)", systemImage: "circle.fill")
+    /// Singular and plural are given by hand: automatic inflection reads «enlazado» as a verb.
+    private func count(_ key: String, _ singular: String, _ plural: String, _ color: Color,
+                       _ report: EngineReport) -> some View {
+        let n = report.counts[key] ?? 0
+        return Label("\(n) \(n == 1 ? singular : plural)", systemImage: "circle.fill")
             .foregroundStyle(color)
             .labelStyle(.titleAndIcon)
     }

@@ -160,6 +160,11 @@ final class ConformModel {
         return args
     }
 
+    /// Applies the `^[… ](inflect: true)` plural agreement («1 clip», «3 clips»).
+    private static func inflected(_ text: String.LocalizationValue) -> String {
+        String(AttributedString(localized: text).characters)
+    }
+
     private func run(_ args: [String]) async {
         runGeneration += 1
         let generation = runGeneration
@@ -176,11 +181,12 @@ final class ConformModel {
                 case .report(let r): report = r; status = "Análisis completado"
                 case .result(let r):
                     lastOutput = URL(fileURLWithPath: r.output)
-                    var text = "AAF exportado: \(r.clipsWritten) clips, \(r.clipsSkipped) omitidos"
+                    var text = Self.inflected("AAF exportado: ^[\(r.clipsWritten) clip](inflect: true), ^[\(r.clipsSkipped) omitido](inflect: true)")
                     if r.mediaFiles > 0 {
                         let size = ByteCountFormatter.string(fromByteCount: Int64(r.mediaBytes), countStyle: .file)
-                        text += r.mediaDir == nil ? ". \(r.mediaFiles) ficheros embebidos (\(size))"
-                                                  : ". \(r.mediaFiles) ficheros de audio (\(size)) en la carpeta de medios"
+                        text += r.mediaDir == nil
+                            ? Self.inflected(". ^[\(r.mediaFiles) fichero embebido](inflect: true) (\(size))")
+                            : Self.inflected(". ^[\(r.mediaFiles) fichero de audio](inflect: true) (\(size)) en la carpeta de medios")
                     }
                     status = text
                 case .error(let message): errorMessage = message; status = ""

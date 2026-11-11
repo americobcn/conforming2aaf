@@ -35,7 +35,7 @@ Conformig2AAF.app (SwiftUI, macOS 15.8, arm64)
 
 ## 3. Flujo de la aplicación
 
-Ventana con dos paneles: pasos a la izquierda, tabla de enlace a la derecha.
+Ventana con dos paneles: pasos a la izquierda, tabla de enlace a la derecha. Interfaz en español, también la del sistema (menús, paneles): el idioma de desarrollo del proyecto es `es`. Los contadores concuerdan en número («1 aviso», «3 avisos»).
 
 1. **Lista de montaje**: soltar o elegir `.edl`, `.xml` (xmeml o FCPXML), `.fcpxml` o `.fcpxmld`.
 2. **Audio de producción**: una o más carpetas (soltar o elegir), opción «Incluir subcarpetas».

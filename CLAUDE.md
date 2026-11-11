@@ -37,8 +37,12 @@
 - **Pro Tools no da errores útiles, solo se cierra.** Antes de tocar el escritor de AAF o la preparación de medios, lee SPECS.md §9 (qué cierra Pro Tools y qué necesita). Ante un crash nuevo: lee su log en `~/Library/Logs/Avid/`, compara con un AAF que sí importa y prueba con variantes pequeñas que cambien una sola cosa. Para cada prueba, nombres de AAF y de carpeta de medios nuevos (Pro Tools guarda en caché los ficheros).
 - Desarrollo con pruebas primero en el motor; la lógica Swift se verifica con un programa aparte (no hay target de pruebas en Xcode).
 - No se modifican nunca los ficheros de audio originales.
-- Los textos de la interfaz, avisos y notas van en español.
+- Los textos de la interfaz, avisos y notas van en español. El idioma de desarrollo del proyecto es `es` (así los menús y paneles del sistema también salen en español). Plurales con `^[\(n) pista](inflect: true)`; con participios («enlazado») la concordancia automática falla y se pone singular/plural a mano.
 
 ## Actualizaciones
 - **Actualizar CLAUDE.md y SPECS.md**: Cada vez que se implemente o descarte una funcionalidad, framework, libreria o UX actualizar SPECS.md y CLAUDE.md
 
+
+## Model Routing
+Before spawning any subagent, load the `claude-model-router` skill and set the subagent's model from
+its routing table. Never switch the main session's model mid-task.

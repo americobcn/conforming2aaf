@@ -87,10 +87,10 @@
 				};
 			};
 			buildConfigurationList = 1EBA55243097C05E004880B2 /* Build configuration list for PBXProject "Conformig2AAF" */;
-			developmentRegion = en;
+			developmentRegion = es;
 			hasScannedForEncodings = 0;
 			knownRegions = (
-				en,
+				es,
 				Base,
 			);
 			mainGroup = 1EBA55203097C05E004880B2;
