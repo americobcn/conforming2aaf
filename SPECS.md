@@ -51,6 +51,7 @@ Ventana con dos paneles: pasos a la izquierda, tabla de enlace a la derecha. Int
 - **Tabla de enlace**: estado (enlazado / dudoso / no encontrado), pista, clip, entrada, TC origen, escena, toma, canal y fichero. Filtro por estado. En los dudosos, un menú elige el fichero a mano.
 - **Nunca sobrescribe**: si el AAF o su carpeta `<nombre> Media` existen, añade `_yyyy-MM-dd_HH-mm-ss` al nombre.
 - **Nueva importación** (⇧⌘N, barra de herramientas): vacía lista, carpetas, análisis, avisos y elecciones manuales; conserva las opciones de exportación. Desactivada mientras algo se ejecuta.
+- **Icono**: tira de película y forma de onda cruzadas por una línea de sincronía roja, sobre fondo índigo. PNG de 16 a 1024 px en `Assets.xcassets/AppIcon.appiconset`, dibujados con CoreGraphics.
 
 ## 4. Listas de entrada
 
